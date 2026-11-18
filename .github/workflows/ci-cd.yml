@@ -113,7 +113,11 @@ jobs:
           image-ref: ${{ env.IMAGE }}:${{ github.sha }}
           severity: HIGH,CRITICAL
           ignore-unfixed: true
-          exit-code: "1"
+          format: json
+          output: trivy-api.json
+          exit-code: "0"
+      - name: Fail on API image findings (one annotation per finding)
+        run: node scripts/trivy-gate.mjs trivy-api.json
       - name: Scan Keycloak image (Trivy, report only - upstream base image)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
