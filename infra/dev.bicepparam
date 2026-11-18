@@ -3,7 +3,8 @@ using './main.bicep'
 // Trial / personal subscription. Synthetic data only.
 param prefix = 'tosdev'
 param location = 'centralindia'   // must match the reused environment's region
-param dbLocation = 'uksouth'       // PostgreSQL is restricted in some trial regions
+// PostgreSQL region: trial subscriptions refuse some regions/SKUs (UK South was refused for a 2nd B1ms server).
+param dbLocation = readEnvironmentVariable('TOS_DB_LOCATION', 'centralindia')
 // Trial subscriptions allow one Container Apps environment: reuse the ESG one, e.g.
 //   az containerapp env list --query "[0].id" -o tsv
 param existingEnvironmentId = readEnvironmentVariable('TOS_ENVIRONMENT_ID', '')

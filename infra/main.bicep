@@ -71,7 +71,7 @@ resource logs 'Microsoft.OperationalInsights/workspaces@2023-09-01' = if (!reuse
 
 // ---------------------------------------------------------------- database
 resource pg 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
-  name: 'psql-${prefix}-${uniq}'
+  name: 'psql-${prefix}-${uniq}-${dbLocation}'
   location: dbLocation
   sku: { name: dbSku, tier: dbTier }
   properties: {
