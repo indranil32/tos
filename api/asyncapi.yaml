@@ -1,0 +1,113 @@
+asyncapi: 3.0.0
+info:
+  title: TOS platform domain events
+  version: 0.1.0
+  description: >
+    Every event is written to the transactional outbox in the same transaction as the change.
+    Consumers poll GET /v1/events?after={id} today; webhooks and Kafka publishing use the same payloads.
+    Each event is the API twin of one or more EDI messages (see docs/edi-api-catalogue.md).
+channels:
+  tosEvents:
+    address: tos.events.{tenant}
+    parameters:
+      tenant:
+        description: Tenant code
+    messages:
+      vesselCallUpdated: { $ref: '#/components/messages/vesselCallUpdated' }
+      vesselArrived: { $ref: '#/components/messages/vesselArrived' }
+      vesselDeparted: { $ref: '#/components/messages/vesselDeparted' }
+      loadlistUpdated: { $ref: '#/components/messages/loadlistUpdated' }
+      unitDischarged: { $ref: '#/components/messages/unitDischarged' }
+      unitGatedIn: { $ref: '#/components/messages/unitGated' }
+      unitGatedOut: { $ref: '#/components/messages/unitGated' }
+      holdApplied: { $ref: '#/components/messages/holdApplied' }
+      holdReleased: { $ref: '#/components/messages/holdReleased' }
+      invoiceIssued: { $ref: '#/components/messages/invoiceIssued' }
+operations:
+  publishEvents:
+    action: send
+    channel: { $ref: '#/channels/tosEvents' }
+components:
+  schemas:
+    Envelope:
+      type: object
+      required: [id, type, aggregate_type, aggregate_id, payload, occurred_at]
+      properties:
+        id: { type: integer, description: Monotonic per installation; use as the after= cursor }
+        type: { type: string }
+        aggregate_type: { type: string, enum: [unit, vessel_visit, invoice] }
+        aggregate_id: { type: string, format: uuid }
+        facility: { type: string, description: Facility code }
+        actor: { type: string, description: Token subject that caused the event }
+        occurred_at: { type: string, format: date-time }
+        payload: { type: object }
+  messages:
+    vesselCallUpdated:
+      name: vessel-call.updated
+      summary: Visit created or changed (BERMAN / CALINF twin)
+      payload:
+        type: object
+        properties: { visitRef: { type: string }, imo: { type: string }, phase: { type: string }, eta: { type: string, format: date-time } }
+    vesselArrived:
+      name: vessel.arrived
+      payload:
+        type: object
+        properties: { visitRef: { type: string }, imo: { type: string }, ata: { type: string, format: date-time }, berth: { type: string } }
+    vesselDeparted:
+      name: vessel.departed
+      summary: VESDEP twin
+      payload:
+        type: object
+        properties: { visitRef: { type: string }, imo: { type: string }, atd: { type: string, format: date-time } }
+    loadlistUpdated:
+      name: loadlist.updated
+      summary: COPRAR twin
+      payload:
+        type: object
+        properties: { visitRef: { type: string }, created: { type: integer }, updated: { type: integer }, items: { type: integer } }
+    unitDischarged:
+      name: unit.discharged
+      summary: COARRI (discharge) twin; triggers discharge charges
+      payload:
+        type: object
+        properties:
+          unitRef: { type: string }
+          cargoKind: { type: string, enum: [CONTAINER, BREAKBULK, VEHICLE, LIQUID] }
+          isoType: { type: string }
+          visitRef: { type: string }
+          position: { type: string }
+    unitGated:
+      name: unit.gated-in / unit.gated-out
+      summary: CODECO twin; gate-out triggers lift and storage charges
+      payload:
+        type: object
+        properties:
+          unitRef: { type: string }
+          cargoKind: { type: string }
+          isoType: { type: string }
+          truckPlate: { type: string }
+          gateTransactionId: { type: string, format: uuid }
+          position: { type: string }
+    holdApplied:
+      name: hold.applied
+      summary: CUSRES / customs decision twin
+      payload:
+        type: object
+        properties: { unitRef: { type: string }, holdId: { type: string }, holdType: { type: string }, reference: { type: string } }
+    holdReleased:
+      name: hold.released
+      payload:
+        type: object
+        properties: { unitRef: { type: string }, holdId: { type: string }, holdType: { type: string } }
+    invoiceIssued:
+      name: invoice.issued
+      summary: INVOIC twin; consumed by the ERP (Oracle) connector
+      payload:
+        type: object
+        properties:
+          invoiceNo: { type: string }
+          customer: { type: string }
+          erpCustomerRef: { type: string }
+          currency: { type: string }
+          total: { type: string }
+          lines: { type: integer }

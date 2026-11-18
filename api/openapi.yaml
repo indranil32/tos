@@ -1,0 +1,472 @@
+openapi: 3.1.0
+info:
+  title: TOS platform API
+  version: 0.1.0
+  description: >
+    Multipurpose Terminal Operating System API. Every standard EDI message has a twin here
+    (see docs/edi-api-catalogue.md). Errors are RFC 9457 problem+json.
+    Facility-scoped endpoints need the X-Facility header (facility code).
+servers:
+  - url: http://localhost:3000
+security:
+  - oidc: []
+tags:
+  - { name: platform }
+  - { name: master-data }
+  - { name: vessel }
+  - { name: inventory }
+  - { name: gate }
+  - { name: billing }
+  - { name: edi }
+  - { name: events }
+
+paths:
+  /health:
+    get:
+      tags: [platform]
+      security: []
+      responses: { '200': { description: OK } }
+
+  /v1/platform/tenants:
+    post:
+      tags: [platform]
+      summary: Provision a tenant (platform:admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, name, oidcIssuer]
+              properties:
+                code: { type: string, pattern: '^[a-z0-9][a-z0-9-]{1,39}$' }
+                name: { type: string }
+                oidcIssuer: { type: string, format: uri, description: Issuer of the tenant's IdP realm }
+                dataRegion: { type: string, default: default }
+      responses: { '201': { description: Created }, '409': { $ref: '#/components/responses/Problem' } }
+    get:
+      tags: [platform]
+      summary: List tenants (platform:admin)
+      responses: { '200': { description: OK } }
+
+  /v1/tenant:
+    get:
+      tags: [master-data]
+      summary: Caller's tenant, roles and facility scope
+      responses: { '200': { description: OK } }
+
+  /v1/complexes:
+    post:
+      tags: [master-data]
+      requestBody: { $ref: '#/components/requestBodies/CodeName' }
+      responses: { '201': { description: Created } }
+
+  /v1/facilities:
+    get:
+      tags: [master-data]
+      responses: { '200': { description: Facilities the caller may use } }
+    post:
+      tags: [master-data]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [complexCode, code, name]
+              properties:
+                complexCode: { type: string }
+                code: { type: string }
+                name: { type: string }
+                facilityType: { type: string, enum: [MULTIPURPOSE, CONTAINER, BREAKBULK, RORO, LIQUID_BULK] }
+                unlocode: { $ref: '#/components/schemas/UnLocode' }
+                smdgCode: { type: string }
+                timezone: { type: string, example: Asia/Dubai }
+                currency: { type: string, example: AED }
+      responses: { '201': { description: Created } }
+
+  /v1/yards:
+    post:
+      tags: [master-data]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [facilityCode, code, name]
+              properties: { facilityCode: { type: string }, code: { type: string }, name: { type: string } }
+      responses: { '201': { description: Created } }
+
+  /v1/yard-blocks:
+    post:
+      tags: [master-data]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [facilityCode, yardCode, code, blockType]
+              properties:
+                facilityCode: { type: string }
+                yardCode: { type: string }
+                code: { type: string }
+                blockType: { type: string, enum: [CONTAINER_STACK, LAYDOWN, RORO_LANE, TANK] }
+                bays: { type: integer }
+                rows: { type: integer }
+                tiers: { type: integer }
+                capacity: { type: number }
+      responses: { '201': { description: Created } }
+
+  /v1/partners:
+    get:
+      tags: [master-data]
+      responses: { '200': { description: OK } }
+    post:
+      tags: [master-data]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, name, roles]
+              properties:
+                code: { type: string }
+                name: { type: string }
+                roles: { type: array, items: { type: string, enum: [LINE_OPERATOR, AGENT, HAULIER, CONSIGNEE, CUSTOMER] } }
+                isAeo: { type: boolean }
+                erpCustomerRef: { type: string }
+      responses: { '201': { description: Created } }
+
+  /v1/vessels:
+    post:
+      tags: [vessel]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [imo, name]
+              properties:
+                imo: { type: string, pattern: '^[0-9]{7}$' }
+                name: { type: string }
+                callSign: { type: string }
+                vesselType: { type: string, enum: [CONTAINER, GENERAL_CARGO, RORO, TANKER, BULK, CRUISE, OTHER] }
+                loaM: { type: number }
+      responses: { '201': { description: Created } }
+
+  /v1/visits:
+    post:
+      tags: [vessel]
+      summary: Create a vessel visit (BERMAN / CALINF twin)
+      parameters: [{ $ref: '#/components/parameters/Facility' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [visitRef, imo]
+              properties:
+                visitRef: { type: string }
+                imo: { type: string }
+                lineOperator: { type: string }
+                voyageIn: { type: string }
+                voyageOut: { type: string }
+                berth: { type: string }
+                eta: { type: string, format: date-time }
+                etd: { type: string, format: date-time }
+      responses: { '201': { description: Created } }
+
+  /v1/visits/{id}:
+    get:
+      tags: [vessel]
+      parameters: [{ $ref: '#/components/parameters/Facility' }, { $ref: '#/components/parameters/Id' }]
+      responses: { '200': { description: Visit with planned/completed move counts } }
+
+  /v1/visits/{id}/arrive:
+    post:
+      tags: [vessel]
+      parameters: [{ $ref: '#/components/parameters/Facility' }, { $ref: '#/components/parameters/Id' }]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { ata: { type: string, format: date-time }, berth: { type: string } } }
+      responses: { '201': { description: Arrived }, '409': { $ref: '#/components/responses/Problem' } }
+
+  /v1/visits/{id}/depart:
+    post:
+      tags: [vessel]
+      summary: Vessel departure (VESDEP twin)
+      parameters: [{ $ref: '#/components/parameters/Facility' }, { $ref: '#/components/parameters/Id' }]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { atd: { type: string, format: date-time } } }
+      responses: { '201': { description: Departed } }
+
+  /v1/visits/{id}/load-lists:
+    post:
+      tags: [vessel]
+      summary: Load / discharge list (COPRAR twin). Idempotent for units still ADVISED.
+      parameters: [{ $ref: '#/components/parameters/Facility' }, { $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items: { type: array, items: { $ref: '#/components/schemas/LoadListItem' }, maxItems: 5000 }
+      responses:
+        '201': { description: 'Applied: { visitRef, created, updated }' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/visits/{id}/discharges:
+    post:
+      tags: [vessel]
+      summary: Confirm a discharge move; the unit is placed in the yard
+      parameters: [{ $ref: '#/components/parameters/Facility' }, { $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [unitRef]
+              properties:
+                unitRef: { type: string }
+                position: { type: string, description: Explicit slot; otherwise allocated }
+                block: { type: string, description: Preferred block for allocation }
+                cheId: { type: string }
+                completedAt: { type: string, format: date-time }
+      responses: { '201': { description: 'Placed: { unitId, unitRef, position, completedAt }' }, '409': { $ref: '#/components/responses/Problem' } }
+
+  /v1/visits/{id}/moves:
+    get:
+      tags: [vessel]
+      summary: Vessel moves (COARRI twin)
+      parameters: [{ $ref: '#/components/parameters/Facility' }, { $ref: '#/components/parameters/Id' }]
+      responses: { '200': { description: OK } }
+
+  /v1/units:
+    get:
+      tags: [inventory]
+      parameters:
+        - { $ref: '#/components/parameters/Facility' }
+        - { name: ref, in: query, schema: { type: string } }
+        - { name: state, in: query, schema: { type: string, enum: [ADVISED, IN_YARD, LOADED, DEPARTED] } }
+      responses: { '200': { description: OK } }
+
+  /v1/units/{id}:
+    get:
+      tags: [inventory]
+      parameters: [{ $ref: '#/components/parameters/Facility' }, { $ref: '#/components/parameters/Id' }]
+      responses: { '200': { description: Unit with holds } }
+
+  /v1/units/{id}/holds:
+    post:
+      tags: [inventory]
+      summary: Apply a hold (customs decision / CUSRES twin)
+      parameters: [{ $ref: '#/components/parameters/Facility' }, { $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [holdType]
+              properties:
+                holdType: { type: string, enum: [CUSTOMS, LINE, TERMINAL, DG, INSPECTION] }
+                reference: { type: string, description: e.g. ASYCUDA declaration number }
+      responses: { '201': { description: Created } }
+
+  /v1/units/{id}/holds/{holdId}/release:
+    post:
+      tags: [inventory]
+      parameters:
+        - { $ref: '#/components/parameters/Facility' }
+        - { $ref: '#/components/parameters/Id' }
+        - { name: holdId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses: { '201': { description: Released }, '404': { $ref: '#/components/responses/Problem' } }
+
+  /v1/gate/transactions:
+    post:
+      tags: [gate]
+      summary: Truck gate in/out (CODECO twin). Rejections are recorded and returned with status REJECTED.
+      parameters: [{ $ref: '#/components/parameters/Facility' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [direction, unitRef]
+              properties:
+                direction: { type: string, enum: [IN, OUT] }
+                unitRef: { type: string }
+                truckPlate: { type: string }
+                haulier: { type: string }
+                at: { type: string, format: date-time }
+      responses: { '201': { description: COMPLETED or REJECTED with rejectReason } }
+
+  /v1/gate/transactions/{id}:
+    get:
+      tags: [gate]
+      parameters: [{ $ref: '#/components/parameters/Facility' }, { $ref: '#/components/parameters/Id' }]
+      responses: { '200': { description: OK } }
+
+  /v1/tariffs:
+    get:
+      tags: [billing]
+      parameters: [{ $ref: '#/components/parameters/Facility' }]
+      responses: { '200': { description: OK } }
+    post:
+      tags: [billing]
+      parameters: [{ $ref: '#/components/parameters/Facility' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chargeCode, description, cargoKind, triggerEvent, basis, rate, currency]
+              properties:
+                chargeCode: { type: string }
+                description: { type: string }
+                cargoKind: { type: string, enum: [CONTAINER, BREAKBULK, VEHICLE, LIQUID] }
+                triggerEvent: { type: string, enum: [unit.discharged, unit.loaded, unit.gated-in, unit.gated-out, storage] }
+                basis: { type: string, enum: [PER_UNIT, PER_TEU, PER_TONNE, PER_M3, PER_DAY] }
+                rate: { type: number }
+                currency: { type: string }
+                freeDays: { type: integer }
+                customer: { type: string, description: Contract rate for this customer }
+                allFacilities: { type: boolean }
+                validFrom: { type: string, format: date }
+                validTo: { type: string, format: date }
+      responses: { '201': { description: Created } }
+
+  /v1/charges:
+    get:
+      tags: [billing]
+      parameters:
+        - { $ref: '#/components/parameters/Facility' }
+        - { name: customer, in: query, schema: { type: string } }
+        - { name: uninvoiced, in: query, schema: { type: boolean } }
+      responses: { '200': { description: OK } }
+
+  /v1/invoices:
+    post:
+      tags: [billing]
+      summary: Invoice a customer's uninvoiced charges, one invoice per currency (INVOIC twin)
+      parameters: [{ $ref: '#/components/parameters/Facility' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [customer], properties: { customer: { type: string } } }
+      responses: { '201': { description: '{ invoices: [...] }' }, '409': { $ref: '#/components/responses/Problem' } }
+
+  /v1/invoices/{id}:
+    get:
+      tags: [billing]
+      parameters: [{ $ref: '#/components/parameters/Facility' }, { $ref: '#/components/parameters/Id' }]
+      responses: { '200': { description: Invoice with lines } }
+
+  /v1/edi/inbound:
+    post:
+      tags: [edi]
+      summary: Receive an EDIFACT interchange (COPRAR supported)
+      parameters: [{ $ref: '#/components/parameters/Facility' }]
+      requestBody:
+        required: true
+        content:
+          application/edifact: { schema: { type: string } }
+          text/plain: { schema: { type: string } }
+      responses:
+        '201': { description: 'ACCEPTED: { status, messageType, interchangeRef, result }' }
+        '422': { description: 'REJECTED: APERAK-style { status, messageType, error, errors }' }
+
+  /v1/edi/outbound/coarri/{id}:
+    get:
+      tags: [edi]
+      parameters: [{ $ref: '#/components/parameters/Facility' }, { $ref: '#/components/parameters/Id' }]
+      responses: { '200': { description: COARRI discharge report, content: { application/edifact: { schema: { type: string } } } } }
+
+  /v1/edi/outbound/codeco/{id}:
+    get:
+      tags: [edi]
+      parameters: [{ $ref: '#/components/parameters/Facility' }, { $ref: '#/components/parameters/Id' }]
+      responses: { '200': { description: CODECO gate report, content: { application/edifact: { schema: { type: string } } } } }
+
+  /v1/events:
+    get:
+      tags: [events]
+      summary: Event feed (see api/asyncapi.yaml)
+      parameters:
+        - { name: after, in: query, schema: { type: integer }, description: Last event id seen }
+        - { name: type, in: query, schema: { type: string } }
+      responses: { '200': { description: '{ events: [...] }, max 500 per page' } }
+
+components:
+  securitySchemes:
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: http://localhost:8080/realms/demo/.well-known/openid-configuration
+  parameters:
+    Facility:
+      name: X-Facility
+      in: header
+      required: true
+      schema: { type: string }
+      description: Facility (terminal) code; must be in the token's facilities claim when present
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  requestBodies:
+    CodeName:
+      required: true
+      content:
+        application/json:
+          schema: { type: object, required: [code, name], properties: { code: { type: string }, name: { type: string } } }
+  responses:
+    Problem:
+      description: RFC 9457 problem details
+      content:
+        application/problem+json:
+          schema:
+            type: object
+            properties:
+              status: { type: integer }
+              title: { type: string }
+              detail: { type: string }
+              errors: { type: array, items: { type: object } }
+  schemas:
+    UnLocode: { type: string, pattern: '^[A-Z]{2}[A-Z2-9]{3}$', example: AEKHL }
+    LoadListItem:
+      type: object
+      required: [unitRef]
+      properties:
+        move: { type: string, enum: [DISCHARGE, LOAD], default: DISCHARGE }
+        unitRef: { type: string, description: 'ISO 6346 container no., ISO 3779 VIN, lot or parcel ref' }
+        cargoKind: { type: string, enum: [CONTAINER, BREAKBULK, VEHICLE, LIQUID], default: CONTAINER }
+        isoType: { type: string, example: 22G1 }
+        freightKind: { type: string, enum: [FCL, LCL, MTY, NA] }
+        category: { type: string, enum: [IMPORT, EXPORT, TRANSSHIP, STORAGE] }
+        grossWeightKg: { type: number }
+        vgmKg: { type: number }
+        quantity: { type: number }
+        quantityUom: { type: string, enum: [UNIT, PCS, MT, M3] }
+        lineOperator: { type: string }
+        pol: { $ref: '#/components/schemas/UnLocode' }
+        pod: { $ref: '#/components/schemas/UnLocode' }
+        dgClass: { type: string, description: IMDG class }
+        dgUnNumber: { type: string, pattern: '^[0-9]{4}$' }
+        isReefer: { type: boolean }
+        seals: { type: array, items: { type: string } }

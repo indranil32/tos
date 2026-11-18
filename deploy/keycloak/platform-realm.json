@@ -1,0 +1,25 @@
+{
+  "realm": "platform",
+  "enabled": true,
+  "roles": { "realm": [{ "name": "platform:admin", "description": "Provision tenants" }] },
+  "clients": [
+    {
+      "clientId": "tos-cli",
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": false
+    }
+  ],
+  "users": [
+    {
+      "username": "operator",
+      "enabled": true,
+      "email": "operator@platform.test",
+      "emailVerified": true,
+      "firstName": "Platform",
+      "lastName": "Operator",
+      "credentials": [{ "type": "password", "value": "operator", "temporary": false }],
+      "realmRoles": ["platform:admin"]
+    }
+  ]
+}
