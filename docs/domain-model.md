@@ -58,13 +58,13 @@ A container number can be active only once per facility (partial unique index); 
 
 ## Billing model
 
-Charges accrue **in the same database transaction** as the operational event (`unit.discharged`, `unit.loaded`, `unit.gated-in`, `unit.gated-out`, and `storage` evaluated at gate-out). Tariff selection per charge code:
+Charges accrue **in the same database transaction** as the operational event (`unit.discharged`, `unit.loaded`, `unit.gated-in`, `unit.gated-out`, and `storage` evaluated when the unit leaves the yard). Tariff selection per charge code:
 
 1. customer contract rate beats the standard rate,
 2. facility-specific beats tenant-wide,
 3. latest `valid_from` that covers the event date.
 
-Quantity by basis: `PER_UNIT` 1; `PER_TEU` from the ISO length code (20' = 1, 40'/45' = 2); `PER_TONNE` from gross weight or MT quantity; `PER_M3` from m³ quantity; `PER_DAY` = ceil(days in yard) − free days. Invoices group a customer's uninvoiced charges per currency and emit `invoice.issued`, which the ERP connector (Oracle) consumes.
+Quantity by basis: `PER_UNIT` 1; `PER_TEU` from the ISO length code (20' = 1, 40'/45' = 2); `PER_TONNE` from gross weight or MT quantity; `PER_M3` from m³ quantity; `PER_DAY` = calendar days in the terminal's time zone (arrival and departure days both count) − free days; settled at gate-out for imports and at load for exports and transshipments. Invoices group a customer's uninvoiced charges per currency and emit `invoice.issued`, which the ERP connector (Oracle) consumes.
 
 ## Concepts from the reference systems
 

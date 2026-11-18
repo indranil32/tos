@@ -38,6 +38,14 @@ export const DischargeBody = z.object({
   completedAt: isoDateTime.optional(),
 });
 
+export const LoadBody = z.object({
+  unitRef: z.string().trim().toUpperCase(),
+  /** Vessel cell bay-row-tier (ISO 9711 / BAPLIE LOC+147), e.g. 0120682. */
+  stowPosition: z.string().regex(/^[0-9]{6,7}$/, 'bay-row-tier, e.g. 0120682').optional(),
+  cheId: z.string().optional(),
+  completedAt: isoDateTime.optional(),
+});
+
 export interface VisitRow {
   id: string;
   visit_ref: string;
@@ -184,6 +192,90 @@ export class VesselService {
     });
     return { unitId: unit.id, unitRef: body.unitRef, position: alloc.position, completedAt: at };
   }
+
+  load(tx: Tx, ctx: RequestContext, facility: FacilityRow, visitId: string, body: z.infer<typeof LoadBody>) {
+    return loadUnit(this, this.events, tx, ctx, facility, visitId, body);
+  }
+
+  /**
+   * Close a visit at departure: loaded units leave the terminal, unworked moves are cancelled
+   * (units planned for discharge but not discharged stay on board and are released from the visit).
+   */
+  async closeOnDeparture(tx: Tx, visitId: string, atd: string) {
+    const departed = await tx.exec(
+      `UPDATE units SET state = 'DEPARTED' WHERE visit_out_id = $1 AND state = 'LOADED'`,
+      [visitId],
+    );
+    const cancelled = await tx.exec(
+      `UPDATE work_instructions SET status = 'CANCELLED' WHERE visit_id = $1 AND status = 'PLANNED'`,
+      [visitId],
+    );
+    const notDischarged = await tx.exec(
+      `UPDATE units SET state = 'DEPARTED', time_out = $2 WHERE visit_in_id = $1 AND state = 'ADVISED' AND category <> 'EXPORT'`,
+      [visitId, atd],
+    );
+    await tx.exec(`UPDATE units SET visit_out_id = NULL WHERE visit_out_id = $1 AND state IN ('ADVISED','IN_YARD')`, [visitId]);
+    return { unitsDeparted: departed, movesCancelled: cancelled, notDischarged };
+  }
+}
+
+/**
+ * Confirm a load move: unit leaves the yard onto the vessel.
+ * Enforces SOLAS VGM for packed containers and blocks units with active holds. COARRI (load) source.
+ */
+export async function loadUnit(
+  service: VesselService,
+  events: EventsService,
+  tx: Tx,
+  ctx: RequestContext,
+  facility: FacilityRow,
+  visitId: string,
+  body: z.infer<typeof LoadBody>,
+) {
+  const visit = await service.visit(tx, facility, visitId, true);
+  if (!['ARRIVED', 'WORKING'].includes(visit.phase)) {
+    throw ApiError.conflict('visit_not_working', `Visit must be ARRIVED or WORKING, is ${visit.phase}`);
+  }
+  const unit = await tx.one<{
+    id: string; cargo_kind: string; iso_type: string | null; state: string; freight_kind: string;
+    vgm_kg: string | null; yard_position: string | null; dg_class: string | null;
+  }>(
+    `SELECT id, cargo_kind, iso_type, state, freight_kind, vgm_kg, yard_position, dg_class FROM units
+      WHERE facility_id = $1 AND unit_ref = $2 AND visit_out_id = $3 AND state <> 'DEPARTED' FOR UPDATE`,
+    [facility.id, body.unitRef, visitId],
+  );
+  if (!unit) throw ApiError.notFound(`Unit ${body.unitRef} planned on visit ${visit.visit_ref}`);
+  if (unit.state === 'LOADED') throw ApiError.conflict('already_loaded', `${body.unitRef} is already loaded`);
+  if (unit.state !== 'IN_YARD') throw ApiError.conflict('not_in_yard', `${body.unitRef} is ${unit.state}`);
+  if (unit.cargo_kind === 'CONTAINER' && unit.freight_kind !== 'MTY' && !unit.vgm_kg) {
+    throw ApiError.conflict('vgm_missing', `${body.unitRef} has no verified gross mass (SOLAS VI/2)`);
+  }
+  const holds = await tx.many<{ hold_type: string }>('SELECT hold_type FROM unit_holds WHERE unit_id = $1 AND released_at IS NULL', [unit.id]);
+  if (holds.length) throw ApiError.conflict('on_hold', `${body.unitRef} has active holds: ${holds.map((h) => h.hold_type).join(', ')}`);
+
+  const at = body.completedAt ?? new Date().toISOString();
+  await tx.exec(
+    `UPDATE units SET state = 'LOADED', stow_position = $2, yard_position = NULL, yard_block_id = NULL, time_out = $3 WHERE id = $1`,
+    [unit.id, body.stowPosition ?? null, at],
+  );
+  const updated = await tx.exec(
+    `UPDATE work_instructions SET status = 'COMPLETED', from_position = $3, to_position = $4, che_id = $5, completed_at = $6
+      WHERE unit_id = $1 AND visit_id = $2 AND move_kind = 'LOAD' AND status = 'PLANNED'`,
+    [unit.id, visitId, unit.yard_position, body.stowPosition ?? 'VESSEL', body.cheId ?? null, at],
+  );
+  if (!updated) {
+    await tx.exec(
+      `INSERT INTO work_instructions (tenant_id, facility_id, unit_id, visit_id, move_kind, from_position, to_position, che_id, status, completed_at)
+       VALUES (current_tenant(), $1,$2,$3,'LOAD',$4,$5,$6,'COMPLETED',$7)`,
+      [facility.id, unit.id, visitId, unit.yard_position, body.stowPosition ?? 'VESSEL', body.cheId ?? null, at],
+    );
+  }
+  if (visit.phase === 'ARRIVED') await tx.exec(`UPDATE vessel_visits SET phase = 'WORKING' WHERE id = $1`, [visitId]);
+  await events.emit(tx, ctx, {
+    type: 'unit.loaded', aggregateType: 'unit', aggregateId: unit.id, facilityId: facility.id, occurredAt: at,
+    payload: { unitRef: body.unitRef, cargoKind: unit.cargo_kind, isoType: unit.iso_type, visitRef: visit.visit_ref, stowPosition: body.stowPosition ?? null },
+  });
+  return { unitId: unit.id, unitRef: body.unitRef, stowPosition: body.stowPosition ?? null, completedAt: at };
 }
 
 function validateIdentity(i: LoadListItem): string | undefined {

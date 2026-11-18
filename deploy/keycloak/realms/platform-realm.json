@@ -1,7 +1,14 @@
 {
   "realm": "platform",
   "enabled": true,
-  "roles": { "realm": [{ "name": "platform:admin", "description": "Provision tenants" }] },
+  "roles": {
+    "realm": [
+      {
+        "name": "platform:admin",
+        "description": "Provision tenants"
+      }
+    ]
+  },
   "clients": [
     {
       "clientId": "tos-cli",
@@ -18,8 +25,16 @@
       "emailVerified": true,
       "firstName": "Platform",
       "lastName": "Operator",
-      "credentials": [{ "type": "password", "value": "operator", "temporary": false }],
-      "realmRoles": ["platform:admin"]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${TOS_DEMO_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "platform:admin"
+      ]
     }
   ]
 }

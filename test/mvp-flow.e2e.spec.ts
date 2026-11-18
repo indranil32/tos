@@ -114,7 +114,7 @@ describe('Vessel call: discharge to invoice', () => {
     expect(after.holds[0].releasedAt).toBeTruthy();
   });
 
-  it('invoices the line: contract discharge rate, storage after free days, lift-on, break-bulk per tonne', async () => {
+  it('invoices the line: contract discharge rate, storage after free days (calendar days), lift-on, break-bulk per tonne', async () => {
     const billing = await t.as(['tos:billing']);
     const r = await expectOk(billing.post('/v1/invoices', { customer: 'MSC' }));
     expect(r.body.invoices).toHaveLength(1);
@@ -126,11 +126,11 @@ describe('Vessel call: discharge to invoice', () => {
     expect(byKey).toEqual({
       [`${c1}/DISCH`]: 40, // 1 TEU x 40 (contract)
       [`${c1}/LIFT`]: 20,
-      [`${c1}/STOR`]: 30, // 6 days - 3 free = 3 x 10
+      [`${c1}/STOR`]: 40, // 7 calendar days (arrival day counts) - 3 free = 4 x 10
       [`${c2}/DISCH`]: 80, // 2 TEU x 40
       [`${lot}/BB-DISCH`]: 300, // 25 t x 12
     });
-    expect(Number(inv.total)).toBe(470);
+    expect(Number(inv.total)).toBe(480);
 
     const second = await billing.post('/v1/invoices', { customer: 'MSC' });
     expect(second.status).toBe(409);

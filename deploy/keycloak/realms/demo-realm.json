@@ -3,13 +3,27 @@
   "enabled": true,
   "roles": {
     "realm": [
-      { "name": "tos:admin" },
-      { "name": "tos:planner" },
-      { "name": "tos:operator" },
-      { "name": "tos:gate" },
-      { "name": "tos:billing" },
-      { "name": "tos:edi" },
-      { "name": "tos:viewer" }
+      {
+        "name": "tos:admin"
+      },
+      {
+        "name": "tos:planner"
+      },
+      {
+        "name": "tos:operator"
+      },
+      {
+        "name": "tos:gate"
+      },
+      {
+        "name": "tos:billing"
+      },
+      {
+        "name": "tos:edi"
+      },
+      {
+        "name": "tos:viewer"
+      }
     ]
   },
   "clients": [
@@ -23,7 +37,7 @@
       "clientId": "tos-edi-partner",
       "description": "Example machine client for an EDI/API trading partner (OAuth client credentials)",
       "publicClient": false,
-      "secret": "partner_dev_only",
+      "secret": "${TOS_EDI_PARTNER_SECRET}",
       "serviceAccountsEnabled": true,
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false
@@ -37,8 +51,16 @@
       "emailVerified": true,
       "firstName": "Demo",
       "lastName": "Admin",
-      "credentials": [{ "type": "password", "value": "admin", "temporary": false }],
-      "realmRoles": ["tos:admin"]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${TOS_DEMO_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "tos:admin"
+      ]
     },
     {
       "username": "gate",
@@ -47,14 +69,25 @@
       "emailVerified": true,
       "firstName": "Gate",
       "lastName": "Clerk",
-      "credentials": [{ "type": "password", "value": "gate", "temporary": false }],
-      "realmRoles": ["tos:gate", "tos:viewer"]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${TOS_DEMO_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "tos:gate",
+        "tos:viewer"
+      ]
     },
     {
       "username": "service-account-tos-edi-partner",
       "enabled": true,
       "serviceAccountClientId": "tos-edi-partner",
-      "realmRoles": ["tos:edi"]
+      "realmRoles": [
+        "tos:edi"
+      ]
     }
   ]
 }

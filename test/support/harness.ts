@@ -86,6 +86,7 @@ export function client(app: INestApplication, bearer: string, facility?: string)
   return {
     get: (url: string) => withHeaders(http.get(url)),
     post: (url: string, body?: unknown) => withHeaders(http.post(url)).send(body as object),
+    put: (url: string, body?: unknown) => withHeaders(http.put(url)).send(body as object),
     postText: (url: string, text: string) => withHeaders(http.post(url)).set('Content-Type', 'application/edifact').send(text),
   };
 }

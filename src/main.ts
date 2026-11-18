@@ -8,7 +8,7 @@ import { runMigrations } from './platform/db/migrate';
 async function main() {
   const config = loadConfig();
   if (config.ownerDatabaseUrl && process.env.MIGRATE_ON_START !== 'false') {
-    const applied = await runMigrations(config.ownerDatabaseUrl, config.appDbRole);
+    const applied = await runMigrations(config.ownerDatabaseUrl, config.appDbRole, undefined, process.env.APP_DB_PASSWORD);
     if (applied.length) console.log(`Migrations applied: ${applied.join(', ')}`);
   }
   const app = await NestFactory.create(AppModule, { bodyParser: false });

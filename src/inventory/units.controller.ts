@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { Ctx, FacilityScoped, Roles } from '../platform/auth/decorators';
 import { RequestContext, ROLES } from '../platform/context';
@@ -7,6 +7,7 @@ import { ApiError } from '../platform/errors';
 import { EventsService } from '../platform/events/events.service';
 import { currentFacility } from '../platform/facility';
 import { parse } from '../platform/validation';
+import { VgmBody, VgmService } from './vgm.service';
 
 const HoldBody = z.object({
   holdType: z.enum(['CUSTOMS', 'LINE', 'TERMINAL', 'DG', 'INSPECTION']),
@@ -17,12 +18,21 @@ export const UNIT_COLUMNS = `u.id, u.cargo_kind AS "cargoKind", u.unit_ref AS "u
   u.freight_kind AS "freightKind", u.category, u.gross_weight_kg AS "grossWeightKg", u.quantity, u.quantity_uom AS "quantityUom",
   u.state, u.yard_position AS "yardPosition", u.pol, u.pod, u.dg_class AS "dgClass", u.dg_un_number AS "dgUnNumber",
   u.is_reefer AS "isReefer", u.time_in AS "timeIn", u.time_out AS "timeOut",
+  u.vgm_kg AS "vgmKg", u.vgm_method AS "vgmMethod", u.stow_position AS "stowPosition",
   (SELECT code FROM partners p WHERE p.id = u.line_operator_id) AS "lineOperator"`;
 
 @Controller('v1/units')
 @FacilityScoped()
 export class UnitsController {
-  constructor(private readonly db: DatabaseService, private readonly events: EventsService) {}
+  constructor(private readonly db: DatabaseService, private readonly events: EventsService, private readonly vgm: VgmService) {}
+
+  /** Verified gross mass (SOLAS). API twin of VERMAS. */
+  @Put(':id/vgm')
+  @Roles(ROLES.operator, ROLES.gate, ROLES.edi, ROLES.planner)
+  setVgm(@Ctx() ctx: RequestContext, @Param('id', ParseUUIDPipe) id: string, @Body() body: unknown) {
+    const b = parse(VgmBody, body);
+    return this.db.tx(ctx, async (tx) => this.vgm.set(tx, ctx, await currentFacility(tx, ctx), { id }, b));
+  }
 
   @Get()
   find(@Ctx() ctx: RequestContext, @Query('ref') ref?: string, @Query('state') state?: string) {

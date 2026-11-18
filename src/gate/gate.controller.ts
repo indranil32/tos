@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import { z } from 'zod';
+import { VgmService } from '../inventory/vgm.service';
 import { YardAllocator } from '../inventory/yard-allocator';
 import { Ctx, FacilityScoped, Roles } from '../platform/auth/decorators';
 import { RequestContext, ROLES } from '../platform/context';
@@ -14,6 +15,12 @@ const GateBody = z.object({
   truckPlate: z.string().max(20).optional(),
   haulier: z.string().optional(),
   at: isoDateTime.optional(),
+  /** VGM declared at gate-in (SOLAS), when not already received by VERMAS or API. */
+  vgm: z.object({
+    vgmKg: z.number().positive().max(60_000),
+    method: z.enum(['SM1', 'SM2']).optional(),
+    verifiedBy: z.string().max(140).optional(),
+  }).optional(),
 });
 
 /**
@@ -23,7 +30,7 @@ const GateBody = z.object({
 @Controller('v1/gate/transactions')
 @FacilityScoped()
 export class GateController {
-  constructor(private readonly db: DatabaseService, private readonly events: EventsService, private readonly yard: YardAllocator) {}
+  constructor(private readonly db: DatabaseService, private readonly events: EventsService, private readonly yard: YardAllocator, private readonly vgm: VgmService) {}
 
   @Post()
   @Roles(ROLES.gate)
@@ -53,6 +60,7 @@ export class GateController {
           [unit!.id, at, alloc.blockId, alloc.position],
         );
       }
+      if (b.direction === 'IN' && b.vgm) await this.vgm.set(tx, ctx, f, { id: unit!.id }, { ...b.vgm, verifiedAt: at });
       const result = await this.record(tx, f, b, unit!.id, haulier?.id ?? null, 'COMPLETED', null);
       await this.events.emit(tx, ctx, {
         type: b.direction === 'OUT' ? 'unit.gated-out' : 'unit.gated-in',

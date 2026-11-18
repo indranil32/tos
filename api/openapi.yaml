@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: TOS platform API
-  version: 0.1.0
+  version: 0.2.0
   description: >
     Multipurpose Terminal Operating System API. Every standard EDI message has a twin here
     (see docs/edi-api-catalogue.md). Errors are RFC 9457 problem+json.
@@ -246,6 +246,44 @@ paths:
                 completedAt: { type: string, format: date-time }
       responses: { '201': { description: 'Placed: { unitId, unitRef, position, completedAt }' }, '409': { $ref: '#/components/responses/Problem' } }
 
+  /v1/visits/{id}/loads:
+    post:
+      tags: [vessel]
+      summary: Confirm a load move (COARRI load twin). Packed containers need VGM (SOLAS); units on hold are refused.
+      parameters: [{ $ref: '#/components/parameters/Facility' }, { $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [unitRef]
+              properties:
+                unitRef: { type: string }
+                stowPosition: { type: string, pattern: '^[0-9]{6,7}$', description: 'Vessel cell bay-row-tier, e.g. 0120682' }
+                cheId: { type: string }
+                completedAt: { type: string, format: date-time }
+      responses: { '201': { description: Loaded }, '409': { $ref: '#/components/responses/Problem' } }
+
+  /v1/units/{id}/vgm:
+    put:
+      tags: [inventory]
+      summary: Verified gross mass (VERMAS twin, SOLAS VI/2)
+      parameters: [{ $ref: '#/components/parameters/Facility' }, { $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [vgmKg]
+              properties:
+                vgmKg: { type: number }
+                method: { type: string, enum: [SM1, SM2] }
+                verifiedBy: { type: string }
+                verifiedAt: { type: string, format: date-time }
+      responses: { '200': { description: Recorded } }
+
   /v1/visits/{id}/moves:
     get:
       tags: [vessel]
@@ -312,6 +350,10 @@ paths:
                 truckPlate: { type: string }
                 haulier: { type: string }
                 at: { type: string, format: date-time }
+                vgm:
+                  type: object
+                  description: VGM declared at gate-in
+                  properties: { vgmKg: { type: number }, method: { type: string, enum: [SM1, SM2] }, verifiedBy: { type: string } }
       responses: { '201': { description: COMPLETED or REJECTED with rejectReason } }
 
   /v1/gate/transactions/{id}:
@@ -380,7 +422,7 @@ paths:
   /v1/edi/inbound:
     post:
       tags: [edi]
-      summary: Receive an EDIFACT interchange (COPRAR supported)
+      summary: Receive an EDIFACT interchange (COPRAR and VERMAS supported)
       parameters: [{ $ref: '#/components/parameters/Facility' }]
       requestBody:
         required: true
@@ -394,7 +436,10 @@ paths:
   /v1/edi/outbound/coarri/{id}:
     get:
       tags: [edi]
-      parameters: [{ $ref: '#/components/parameters/Facility' }, { $ref: '#/components/parameters/Id' }]
+      parameters:
+        - { $ref: '#/components/parameters/Facility' }
+        - { $ref: '#/components/parameters/Id' }
+        - { name: kind, in: query, schema: { type: string, enum: [DISCHARGE, LOAD], default: DISCHARGE } }
       responses: { '200': { description: COARRI discharge report, content: { application/edifact: { schema: { type: string } } } } }
 
   /v1/edi/outbound/codeco/{id}:

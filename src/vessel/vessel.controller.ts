@@ -7,7 +7,7 @@ import { ApiError } from '../platform/errors';
 import { EventsService } from '../platform/events/events.service';
 import { currentFacility } from '../platform/facility';
 import { isoDateTime, parse } from '../platform/validation';
-import { DischargeBody, LoadListItem, VesselService } from './vessel.service';
+import { DischargeBody, LoadBody, LoadListItem, VesselService } from './vessel.service';
 
 const VesselBody = z.object({
   imo: z.string().regex(/^[0-9]{7}$/),
@@ -122,6 +122,14 @@ export class VisitsController {
     return this.db.tx(ctx, async (tx) => this.vessels.discharge(tx, ctx, await currentFacility(tx, ctx), id, b));
   }
 
+  /** Load confirmation from the quay. Blocks packed containers without VGM (SOLAS) and units on hold. */
+  @Post(':id/loads')
+  @Roles(ROLES.operator)
+  load(@Ctx() ctx: RequestContext, @Param('id', ParseUUIDPipe) id: string, @Body() body: unknown) {
+    const b = parse(LoadBody, body);
+    return this.db.tx(ctx, async (tx) => this.vessels.load(tx, ctx, await currentFacility(tx, ctx), id, b));
+  }
+
   /** Completed vessel moves. API twin of COARRI. */
   @Get(':id/moves')
   moves(@Ctx() ctx: RequestContext, @Param('id', ParseUUIDPipe) id: string) {
@@ -149,11 +157,12 @@ export class VisitsController {
         `UPDATE vessel_visits SET phase = $2, ${col} = $3, berth = coalesce($4, berth) WHERE id = $1`,
         [id, to, data[col], (data.berth as string | undefined) ?? null],
       );
+      const closing = to === 'DEPARTED' ? await this.vessels.closeOnDeparture(tx, id, data.atd as string) : {};
       await this.events.emit(tx, ctx, {
         type: event, aggregateType: 'vessel_visit', aggregateId: id, facilityId: f.id,
-        payload: { visitRef: v.visit_ref, imo: v.imo, ...data },
+        payload: { visitRef: v.visit_ref, imo: v.imo, ...data, ...closing },
       });
-      return { id, visitRef: v.visit_ref, phase: to, ...data };
+      return { id, visitRef: v.visit_ref, phase: to, ...data, ...closing };
     });
   }
 }

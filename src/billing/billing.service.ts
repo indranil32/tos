@@ -25,11 +25,8 @@ interface UnitRow {
   quantity: string;
   quantity_uom: string;
   line_operator_id: string | null;
-  time_in: Date | null;
-  time_out: Date | null;
+  storage_days: number | null;
 }
-
-const DAY_MS = 86_400_000;
 
 /**
  * Event-driven billing: charges accrue in the same transaction as the operational event,
@@ -41,19 +38,25 @@ export class BillingService implements OnModuleInit {
   constructor(private readonly events: EventsService) {}
 
   onModuleInit() {
-    for (const trigger of ['unit.discharged', 'unit.loaded', 'unit.gated-in']) {
+    for (const trigger of ['unit.discharged', 'unit.gated-in']) {
       this.events.on(trigger, (tx, _ctx, e) => this.accrue(tx, e, trigger));
     }
-    this.events.on('unit.gated-out', async (tx, _ctx, e) => {
-      await this.accrue(tx, e, 'unit.gated-out');
-      await this.accrue(tx, e, 'storage');
-    });
+    // Storage is settled when the unit leaves the yard: by truck (imports) or onto a vessel (exports, transshipment).
+    for (const trigger of ['unit.gated-out', 'unit.loaded']) {
+      this.events.on(trigger, async (tx, _ctx, e) => {
+        await this.accrue(tx, e, trigger);
+        await this.accrue(tx, e, 'storage');
+      });
+    }
   }
 
   private async accrue(tx: Tx, event: DomainEvent, trigger: string) {
     const unit = await tx.one<UnitRow>(
-      `SELECT id, facility_id, cargo_kind, iso_type, gross_weight_kg, quantity, quantity_uom, line_operator_id, time_in, time_out
-         FROM units WHERE id = $1`,
+      // Storage days: calendar days in the terminal's time zone, day of arrival and day of departure both counted.
+      `SELECT u.id, u.facility_id, u.cargo_kind, u.iso_type, u.gross_weight_kg, u.quantity, u.quantity_uom, u.line_operator_id,
+              CASE WHEN u.time_in IS NOT NULL AND u.time_out IS NOT NULL
+                   THEN ((u.time_out AT TIME ZONE f.timezone)::date - (u.time_in AT TIME ZONE f.timezone)::date + 1) END AS storage_days
+         FROM units u JOIN facilities f ON f.id = u.facility_id WHERE u.id = $1`,
       [event.aggregateId],
     );
     if (!unit || !unit.line_operator_id) return; // no bill-to party: nothing to accrue
@@ -92,11 +95,8 @@ export class BillingService implements OnModuleInit {
         return u.quantity_uom === 'MT' ? Number(u.quantity) : Number(u.gross_weight_kg ?? 0) / 1000;
       case 'PER_M3':
         return u.quantity_uom === 'M3' ? Number(u.quantity) : 0;
-      case 'PER_DAY': {
-        if (!u.time_in || !u.time_out) return 0;
-        const days = Math.ceil((u.time_out.getTime() - u.time_in.getTime()) / DAY_MS);
-        return Math.max(0, days - t.free_days);
-      }
+      case 'PER_DAY':
+        return u.storage_days === null ? 0 : Math.max(0, Number(u.storage_days) - t.free_days);
       default:
         return 0;
     }

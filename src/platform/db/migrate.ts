@@ -11,7 +11,7 @@ export function migrationsDir(): string {
  * Apply pending SQL migrations in file-name order as the owner role,
  * then grant the application role DML rights (it never owns tables, so RLS always applies).
  */
-export async function runMigrations(ownerUrl: string, appRole: string, dir = migrationsDir()): Promise<string[]> {
+export async function runMigrations(ownerUrl: string, appRole: string, dir = migrationsDir(), appPassword?: string): Promise<string[]> {
   const client = new Client({ connectionString: ownerUrl });
   await client.connect();
   const applied: string[] = [];
@@ -36,6 +36,18 @@ export async function runMigrations(ownerUrl: string, appRole: string, dir = mig
       }
     }
     if (!/^[a-z_][a-z0-9_]*$/.test(appRole)) throw new Error(`Invalid app role name: ${appRole}`);
+    if (appPassword) {
+      // Managed PostgreSQL (Azure, RDS) has no init scripts: create or update the non-owner app role here.
+      await client.query("SELECT set_config('tos.app_role', $1, false), set_config('tos.app_pw', $2, false)", [appRole, appPassword]);
+      await client.query(`DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = current_setting('tos.app_role')) THEN
+          EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L', current_setting('tos.app_role'), current_setting('tos.app_pw'));
+        ELSE
+          EXECUTE format('ALTER ROLE %I LOGIN PASSWORD %L', current_setting('tos.app_role'), current_setting('tos.app_pw'));
+        END IF;
+      END $$`);
+      await client.query("SELECT set_config('tos.app_pw', '', false)");
+    }
     await client.query(`GRANT USAGE ON SCHEMA public TO ${appRole}`);
     await client.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${appRole}`);
     await client.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${appRole}`);

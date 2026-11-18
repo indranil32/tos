@@ -21,10 +21,10 @@ A Terminal Operating System for **small and medium multipurpose terminals**: con
 | platform | config, DB access, auth guard, problem+json errors, outbox and event feed, migrations | ✅ |
 | tenancy | tenants, complexes, facilities, yards, blocks, partners | ✅ |
 | inventory | units, holds, yard allocation, ISO 6346 / ISO 3779 checks | ✅ |
-| vessel | vessels, visits, load/discharge lists, discharge moves | ✅ (load moves next) |
+| vessel | vessels, visits, load/discharge lists, discharge and load moves, departure close-out | ✅ |
 | gate | gate in/out with hold checks and trouble-lane rejects | ✅ |
 | billing | tariffs, charge accrual from events, invoices | ✅ (ERP export next) |
-| edi | EDIFACT syntax, COPRAR in, COARRI/CODECO out, message log | ✅ (more messages next) |
+| edi | EDIFACT syntax, COPRAR and VERMAS in, COARRI (discharge/load) and CODECO out, message log | ✅ (more messages next) |
 | customs | WCO DM adapter, ASYCUDA / Single Window connectors | planned |
 | optimisation | yard allocation and dispatch optimisers behind the `YardAllocator` seam | planned |
 | equipment | CHE pools, work queues, handheld (HHT) app | planned |
@@ -60,7 +60,7 @@ map issuer → tenant, check roles and facility scope
 
 | | SaaS | On-prem |
 |---|---|---|
-| Runtime | Kubernetes, N replicas of the same image | Docker Compose on one server, or the customer's Kubernetes |
+| Runtime | Azure Container Apps (API + Keycloak), N replicas of the same image; see [azure-deploy.md](azure-deploy.md) | Docker Compose on one server, or the customer's Kubernetes |
 | Database | Managed PostgreSQL per region (data residency per tenant) | Local PostgreSQL |
 | Identity | Shared Keycloak, realm per tenant, customer IdP federated | Bundled Keycloak, or the customer's IdP directly |
 | Upgrades | Rolling; migrations run once (advisory lock) | Same image, migrations on start |

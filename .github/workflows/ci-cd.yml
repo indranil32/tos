@@ -1,0 +1,191 @@
+name: CI/CD
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy to Azure after the checks pass
+        type: boolean
+        default: true
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+  KC_IMAGE: ghcr.io/${{ github.repository_owner }}/tos-keycloak
+
+jobs:
+  test:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_PASSWORD: postgres }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      TEST_OWNER_DATABASE_URL: postgres://tos_owner:owner@localhost:5432/tos_test
+      TEST_APP_DATABASE_URL: postgres://tos_app:app@localhost:5432/tos_test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - name: Create database roles
+        env: { PGPASSWORD: postgres }
+        run: |
+          psql -h localhost -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tos_owner LOGIN PASSWORD 'owner';
+          CREATE ROLE tos_app LOGIN PASSWORD 'app';
+          CREATE DATABASE tos_test OWNER tos_owner;
+          SQL
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+      - run: npx jest --runInBand --ci --reporters=default
+      - name: Smoke test syntax
+        run: node --check scripts/smoke.mjs
+
+  security:
+    name: Security scans
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Dependency vulnerabilities (npm audit, runtime deps)
+        run: npm audit --omit=dev --audit-level=high
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+      - name: Filesystem and IaC scan (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Bicep build
+        run: az bicep build --file infra/main.bicep --stdout > /dev/null
+
+  build:
+    name: Build and scan images
+    needs: [test, security]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Build API (local)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: ${{ env.IMAGE }}:${{ github.sha }}
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+      - name: Build Keycloak (local)
+        uses: docker/build-push-action@v7
+        with:
+          context: deploy/keycloak
+          load: true
+          tags: ${{ env.KC_IMAGE }}:${{ github.sha }}
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=kc
+          cache-to: type=gha,mode=max,scope=kc
+      - name: Scan API image (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Scan Keycloak image (Trivy, report only - upstream base image)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.KC_IMAGE }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+      - name: Push (main only)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          for img in "$IMAGE" "$KC_IMAGE"; do
+            docker tag "$img:${{ github.sha }}" "$img:latest"
+            docker push "$img:${{ github.sha }}"
+            docker push "$img:latest"
+          done
+
+  deploy:
+    name: Deploy to Azure and smoke test
+    timeout-minutes: 30
+    needs: build
+    if: github.ref == 'refs/heads/main' && vars.AZURE_CLIENT_ID != '' && (github.event_name == 'push' || inputs.deploy)
+    runs-on: ubuntu-latest
+    environment: azure-dev
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      RG: ${{ vars.AZURE_RESOURCE_GROUP }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Locate apps and current images
+        run: |
+          APP=$(az containerapp list -g "$RG" --query "[?tags.\"tos-role\"=='api'].name | [0]" -o tsv)
+          KC=$(az containerapp list -g "$RG" --query "[?tags.\"tos-role\"=='keycloak'].name | [0]" -o tsv)
+          [ -n "$APP" ] && [ -n "$KC" ] || { echo "Run the Bicep deployment first (docs/azure-deploy.md)"; exit 1; }
+          {
+            echo "APP=$APP"; echo "KC=$KC"
+            echo "PREV=$(az containerapp show -g "$RG" -n "$APP" --query 'properties.template.containers[0].image' -o tsv)"
+            echo "KC_PREV=$(az containerapp show -g "$RG" -n "$KC" --query 'properties.template.containers[0].image' -o tsv)"
+            echo "FQDN=$(az containerapp show -g "$RG" -n "$APP" --query properties.configuration.ingress.fqdn -o tsv)"
+            echo "KC_FQDN=$(az containerapp show -g "$RG" -n "$KC" --query properties.configuration.ingress.fqdn -o tsv)"
+          } >> "$GITHUB_ENV"
+      - name: Deploy new images
+        run: |
+          az containerapp update -g "$RG" -n "$KC" --image "$KC_IMAGE:${{ github.sha }}" -o none
+          az containerapp update -g "$RG" -n "$APP" --image "$IMAGE:${{ github.sha }}" -o none
+      - name: Wait for healthy
+        run: |
+          for i in $(seq 1 60); do
+            kc=$(curl -fsS -o /dev/null -w '%{http_code}' "https://$KC_FQDN/realms/platform/.well-known/openid-configuration" 2>/dev/null || true)
+            api=$(curl -fsS "https://$FQDN/health" 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).status)}catch{console.log("")}})' || true)
+            echo "keycloak: ${kc:-down}  api: ${api:-down}"
+            [ "$kc" = "200" ] && [ "$api" = "ok" ] && exit 0
+            sleep 10
+          done
+          exit 1
+      - name: Smoke test against Azure
+        run: |
+          DEMO_PASSWORD=$(az containerapp secret show -g "$RG" -n "$KC" --secret-name demo-password --query value -o tsv)
+          echo "::add-mask::$DEMO_PASSWORD"
+          BASE_URL="https://$FQDN" KC_URL="https://$KC_FQDN" DEMO_PASSWORD="$DEMO_PASSWORD" node scripts/smoke.mjs
+      - name: Roll back on failure
+        if: failure() && env.PREV != ''
+        run: |
+          echo "Rolling back to $PREV and $KC_PREV"
+          az containerapp update -g "$RG" -n "$APP" --image "$PREV" -o none
+          [ -z "$KC_PREV" ] || az containerapp update -g "$RG" -n "$KC" --image "$KC_PREV" -o none

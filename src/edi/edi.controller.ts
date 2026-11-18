@@ -1,13 +1,14 @@
-import { Body, Controller, Get, Header, Param, ParseUUIDPipe, Post, Res } from '@nestjs/common';
+import { Body, Controller, Get, Header, Param, ParseUUIDPipe, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { Ctx, FacilityScoped, Roles } from '../platform/auth/decorators';
 import { RequestContext, ROLES } from '../platform/context';
 import { DatabaseService, Tx } from '../platform/db/database.service';
 import { ApiError } from '../platform/errors';
 import { currentFacility, FacilityRow } from '../platform/facility';
+import { VgmService } from '../inventory/vgm.service';
 import { VesselService } from '../vessel/vessel.service';
 import { parseEdifact } from './edifact';
-import { buildCoarri, buildCodeco, mapCoprar, splitInterchange } from './messages';
+import { buildCoarri, buildCodeco, mapCoprar, mapVermas, splitInterchange } from './messages';
 
 /**
  * EDI gateway. Every inbound message is mapped onto the same service the REST API uses,
@@ -17,7 +18,7 @@ import { buildCoarri, buildCodeco, mapCoprar, splitInterchange } from './message
 @Controller('v1/edi')
 @FacilityScoped()
 export class EdiController {
-  constructor(private readonly db: DatabaseService, private readonly vessels: VesselService) {}
+  constructor(private readonly db: DatabaseService, private readonly vessels: VesselService, private readonly vgm: VgmService) {}
 
   @Post('inbound')
   @Roles(ROLES.edi)
@@ -51,31 +52,34 @@ export class EdiController {
   @Get('outbound/coarri/:visitId')
   @Roles(ROLES.edi, ROLES.planner)
   @Header('Content-Type', 'application/edifact')
-  coarri(@Ctx() ctx: RequestContext, @Param('visitId', ParseUUIDPipe) visitId: string) {
+  coarri(@Ctx() ctx: RequestContext, @Param('visitId', ParseUUIDPipe) visitId: string, @Query('kind') kindParam?: string) {
+    const kind = (kindParam ?? 'DISCHARGE').toUpperCase();
+    if (kind !== 'DISCHARGE' && kind !== 'LOAD') throw ApiError.invalid('kind must be DISCHARGE or LOAD');
     return this.db.tx(ctx, async (tx) => {
       const f = await currentFacility(tx, ctx);
       const v = await tx.must(
-        `SELECT v.id, v.visit_ref, coalesce(v.voyage_in, v.visit_ref) AS voyage, s.imo, s.name, p.code AS line
+        `SELECT v.id, v.visit_ref, coalesce(v.voyage_in, v.visit_ref) AS voyage, coalesce(v.voyage_out, v.voyage_in, v.visit_ref) AS voyage_out, s.imo, s.name, p.code AS line
            FROM vessel_visits v JOIN vessels s ON s.id = v.vessel_id LEFT JOIN partners p ON p.id = v.line_operator_id
           WHERE v.id = $1 AND v.facility_id = $2`,
         [visitId, f.id],
         'Vessel visit',
       );
       const moves = await tx.many(
-        `SELECT u.unit_ref, u.iso_type, u.freight_kind, u.gross_weight_kg, w.completed_at
+        `SELECT u.unit_ref, u.iso_type, u.freight_kind, coalesce(u.vgm_kg, u.gross_weight_kg) AS gross_weight_kg, w.completed_at,
+                CASE WHEN w.move_kind = 'LOAD' THEN w.to_position END AS stow_position
            FROM work_instructions w JOIN units u ON u.id = w.unit_id
-          WHERE w.visit_id = $1 AND w.move_kind = 'DISCHARGE' AND w.status = 'COMPLETED' AND u.cargo_kind = 'CONTAINER'
+          WHERE w.visit_id = $1 AND w.move_kind = $2 AND w.status = 'COMPLETED' AND u.cargo_kind = 'CONTAINER'
           ORDER BY w.completed_at, u.unit_ref`,
-        [visitId],
+        [visitId, kind],
       );
       const ref = await this.nextRef(tx, f);
       const text = buildCoarri(
         { sender: f.smdg_code ?? f.code, recipient: v.line ?? 'UNKNOWN', ref, at: new Date() },
-        { voyage: v.voyage, imo: v.imo, vesselName: v.name, lineOperator: v.line ?? undefined, unlocode: f.unlocode },
-        'DISCHARGE',
+        { voyage: kind === 'LOAD' ? v.voyage_out : v.voyage, imo: v.imo, vesselName: v.name, lineOperator: v.line ?? undefined, unlocode: f.unlocode },
+        kind,
         moves.map((m) => ({
           unitRef: m.unit_ref, isoType: m.iso_type, freightKind: m.freight_kind, grossWeightKg: m.gross_weight_kg,
-          completedAt: m.completed_at, moveKind: 'DISCHARGE' as const,
+          completedAt: m.completed_at, moveKind: kind, stowPosition: m.stow_position === 'VESSEL' ? null : m.stow_position,
         })),
       );
       await this.log(tx, f, 'OUT', 'COARRI', ref, v.line ?? undefined, text, 'GENERATED', null);
@@ -126,6 +130,14 @@ export class EdiController {
           return { ...item, move, pol: _pol, pod: _pod };
         });
         return this.vessels.applyLoadList(tx, ctx, f, visit.id, items);
+      }
+      case 'VERMAS': {
+        const entries = mapVermas(segs);
+        const results = [];
+        for (const e of entries) {
+          results.push(await this.vgm.set(tx, ctx, f, { ref: e.unitRef }, { vgmKg: e.vgmKg, method: e.method, verifiedBy: e.verifiedBy, verifiedAt: e.verifiedAt }));
+        }
+        return { vgmRecorded: results.length };
       }
       default:
         throw ApiError.invalid(`Message type ${type} is not supported yet`);

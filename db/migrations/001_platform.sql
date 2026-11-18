@@ -3,7 +3,7 @@
 -- Every tenant-owned table carries tenant_id and is protected by row-level security (RLS).
 -- The application connects as role tos_app and sets app.tenant_id per transaction.
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- gen_random_uuid() is built in since PostgreSQL 13: no extension needed (works on managed services).
 
 CREATE OR REPLACE FUNCTION current_tenant() RETURNS uuid
 LANGUAGE sql STABLE AS $$

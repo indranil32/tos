@@ -31,7 +31,7 @@ Gate-out is blocked while any hold is active (implemented and tested).
 | Terminal and line codes | SMDG code lists | Facility `smdg_code`, partner codes; used in EDI envelopes |
 | EDI syntax | UN/EDIFACT (ISO 9735), SMDG MIGs | Parser/writer with UNA and release-character handling; COPRAR, COARRI, CODECO |
 | Dangerous goods | IMDG Code | IMDG class and UN number stored; UN number required when a class is given. Segregation checks: planned |
-| Weight | SOLAS VGM | VGM field on units (COPRAR `MEA+AAE+VGM`). Load blocking without VGM: planned with the load slice |
+| Weight | SOLAS VGM | VGM with method (SM1/SM2), signatory and time, from API, gate-in or VERMAS. Loading a packed container without VGM is blocked (tested); empties are exempt |
 | Port call | IMO FAL Convention, Maritime Single Window | Visit data (IMO, call sign, ETA/ETD/ATA/ATD). FAL forms export: planned |
 | Port call timestamps | IHO S-211, DCSA JIT Port Call | Planned on the visit API |
 | Security | ISPS Code, ISO 28000 | Gate transactions with truck plate and haulier, full audit via the event log |

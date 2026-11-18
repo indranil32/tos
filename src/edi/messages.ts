@@ -105,6 +105,43 @@ export function mapCoprar(segs: Segment[]): CoprarResult {
   return { voyage, vesselId, vesselIdType, items };
 }
 
+export interface VermasEntry {
+  unitRef: string;
+  vgmKg: number;
+  method?: 'SM1' | 'SM2';
+  verifiedBy?: string;
+  verifiedAt?: string;
+}
+
+/**
+ * VERMAS (verified gross mass) -> VGM entries.
+ * EQD+CN container, MEA+AAE+VGM weight, DOC method (SM1/SM2), NAD+SPC responsible party, DTM+798 determination time.
+ */
+export function mapVermas(segs: Segment[]): VermasEntry[] {
+  const out: VermasEntry[] = [];
+  let cur: VermasEntry | undefined;
+  for (const s of segs) {
+    if (s.tag === 'EQD') {
+      cur = el(s, 1) === 'CN' ? { unitRef: (el(s, 2) ?? '').toUpperCase(), vgmKg: NaN } : undefined;
+      if (cur) out.push(cur);
+    } else if (!cur) continue;
+    else if (s.tag === 'MEA' && el(s, 1) === 'AAE' && el(s, 2) === 'VGM') cur.vgmKg = Number(el(s, 3, 1));
+    else if (s.tag === 'DOC' && ['SM1', 'SM2'].includes(el(s, 1) ?? '')) cur.method = el(s, 1) as 'SM1' | 'SM2';
+    else if (s.tag === 'NAD' && el(s, 1) === 'SPC') cur.verifiedBy = el(s, 4) ?? el(s, 2);
+    else if (s.tag === 'DTM' && el(s, 1) === '798') cur.verifiedAt = edifactToIso(el(s, 1, 1));
+  }
+  if (!out.length) throw new EdifactError('VERMAS contains no containers (EQD+CN)');
+  const bad = out.find((e) => !(e.vgmKg > 0));
+  if (bad) throw new EdifactError(`VERMAS has no valid VGM (MEA+AAE+VGM) for ${bad.unitRef}`);
+  return out;
+}
+
+function edifactToIso(v?: string): string | undefined {
+  const m = v && /^(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?$/.exec(v);
+  if (!m) return undefined;
+  return `${m[1]}-${m[2]}-${m[3]}T${m[4] ?? '00'}:${m[5] ?? '00'}:00Z`;
+}
+
 interface HeaderInfo {
   sender: string;
   recipient: string;
@@ -131,6 +168,7 @@ export interface CoarriMove {
   grossWeightKg: string | null;
   completedAt: Date;
   moveKind: 'DISCHARGE' | 'LOAD';
+  stowPosition?: string | null;
 }
 
 export function buildCoarri(
@@ -147,6 +185,7 @@ export function buildCoarri(
   if (visit.unlocode) body.push(['LOC', kind === 'DISCHARGE' ? '11' : '9', [visit.unlocode, '139', '6']]);
   for (const m of moves) {
     body.push(['EQD', 'CN', m.unitRef, [m.isoType ?? '', '102', '5'], '', '', m.freightKind === 'MTY' ? '4' : '5']);
+    if (m.stowPosition) body.push(['LOC', '147', [m.stowPosition, '', '5']]);
     body.push(['DTM', ['203', edifactDateTime(m.completedAt).ccyymmddhhmm, '203']]);
     if (m.grossWeightKg) body.push(['MEA', 'AAE', 'G', ['KGM', String(Number(m.grossWeightKg))]]);
   }

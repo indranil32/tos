@@ -4,6 +4,7 @@
 set -euo pipefail
 API="${API:-http://localhost:3000}"
 KC="${KC:-http://localhost:8080}"
+PW="${DEMO_PASSWORD:-demo_dev_only}"
 
 tok() { # realm user password
   curl -fsS -d grant_type=password -d client_id=tos-cli -d "username=$2" -d "password=$3" \
@@ -14,10 +15,10 @@ post() { # token path json [facility]
     ${4:+-H "X-Facility: $4"} -d "$3"; echo
 }
 
-PLATFORM=$(tok platform operator operator)
+PLATFORM=$(tok platform operator "$PW")
 post "$PLATFORM" /v1/platform/tenants "{\"code\":\"demo\",\"name\":\"Demo Port Co\",\"oidcIssuer\":\"$KC/realms/demo\"}"
 
-ADMIN=$(tok demo admin admin)
+ADMIN=$(tok demo admin "$PW")
 post "$ADMIN" /v1/complexes '{"code":"KHL","name":"Demo Port Complex"}'
 post "$ADMIN" /v1/facilities '{"complexCode":"KHL","code":"MPT1","name":"Multipurpose Terminal 1","unlocode":"AEKHL","currency":"AED","timezone":"Asia/Dubai"}'
 post "$ADMIN" /v1/yards '{"facilityCode":"MPT1","code":"Y1","name":"Main yard"}'
@@ -27,4 +28,4 @@ post "$ADMIN" /v1/yard-blocks '{"facilityCode":"MPT1","yardCode":"Y1","code":"R1
 post "$ADMIN" /v1/partners '{"code":"MSC","name":"Mediterranean Shipping Co","roles":["LINE_OPERATOR","CUSTOMER"]}'
 post "$ADMIN" /v1/tariffs '{"chargeCode":"DISCH","description":"Container discharge","cargoKind":"CONTAINER","triggerEvent":"unit.discharged","basis":"PER_TEU","rate":50,"currency":"AED"}' MPT1
 post "$ADMIN" /v1/tariffs '{"chargeCode":"STOR","description":"Import storage","cargoKind":"CONTAINER","triggerEvent":"storage","basis":"PER_DAY","rate":10,"currency":"AED","freeDays":3}' MPT1
-echo "Demo tenant ready. Admin token: tok demo admin admin"
+echo "Demo tenant ready."

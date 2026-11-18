@@ -7,7 +7,7 @@ Status: ✅ implemented · 🟡 API/event implemented, EDI mapper planned · ⬜
 | EDI message | Purpose | Dir | REST API (`/v1`) | Event | Status |
 |---|---|---|---|---|---|
 | COPRAR | Load / discharge order | in | `POST /visits/{id}/load-lists` | `loadlist.updated` | ✅ |
-| COARRI | Load / discharge report | out | `GET /visits/{id}/moves` | `unit.discharged`, `unit.loaded` | ✅ (discharge) |
+| COARRI | Load / discharge report | out | `GET /visits/{id}/moves`, `POST /visits/{id}/loads` | `unit.discharged`, `unit.loaded` | ✅ (discharge and load, with stow cell `LOC+147`) |
 | CODECO | Gate in / out report | out | `POST /gate/transactions` | `unit.gated-in`, `unit.gated-out` | ✅ |
 | BAPLIE | Bay plan | in/out | `PUT /visits/{id}/bayplan` | `bayplan.received` | ⬜ |
 | MOVINS | Stowage instructions | in | `PUT /visits/{id}/stowage` | `stowage.received` | ⬜ |
@@ -15,11 +15,11 @@ Status: ✅ implemented · 🟡 API/event implemented, EDI mapper planned · ⬜
 | COREOR | Release order | in | `POST /releases` | `release.granted` | ⬜ |
 | COHAOR | Special handling order | in | `POST /service-orders` | `service.ordered` | ⬜ |
 | COSTCO / COSTOR | Stuffing / stripping | in/out | `POST /cfs-orders` | `cfs.completed` | ⬜ |
-| VERMAS | Verified gross mass (SOLAS) | in | `PUT /units/{id}/vgm` | `unit.vgm-set` | ⬜ (VGM field exists) |
+| VERMAS | Verified gross mass (SOLAS) | in | `PUT /units/{id}/vgm`, or `vgm` on gate-in | `unit.vgm-set` | ✅ |
 | IFTDGN | Dangerous goods notification | in | `POST /dg-declarations` | `dg.declared` | ⬜ (IMDG fields exist) |
 | CUSCAR / CUSRES | Customs cargo report / response | in/out | `POST /units/{id}/holds`, `.../release` | `hold.applied`, `hold.released` | 🟡 |
 | BERMAN / CALINF | Berth request / call information | in | `POST /visits` | `vessel-call.updated` | 🟡 |
-| VESDEP | Vessel departure | out | `POST /visits/{id}/depart` | `vessel.departed` | 🟡 |
+| VESDEP | Vessel departure | out | `POST /visits/{id}/depart` (loaded units leave, unworked moves cancelled) | `vessel.departed` | 🟡 |
 | IFTMIN | Transport instruction | in | `POST /transport-orders` | `transport-order.created` | ⬜ |
 | IFTSTA | Status report (RoRo, general cargo) | out | `GET /units/{id}` | `cargo.status-changed` | ⬜ |
 | DESTIM | Damage / repair estimate | out | `GET /units/{id}/damages` | `unit.damaged` | ⬜ |
@@ -32,7 +32,7 @@ Status: ✅ implemented · 🟡 API/event implemented, EDI mapper planned · ⬜
 ## EDI endpoints
 
 - `POST /v1/edi/inbound` — body is the raw interchange (`Content-Type: application/edifact` or `text/plain`), `X-Facility` selects the terminal. Response is APERAK-style JSON: `ACCEPTED` with the result, or `REJECTED` with the reason. Every message is stored in `edi_messages`, including rejected ones.
-- `GET /v1/edi/outbound/coarri/{visitId}` — discharge report for a visit.
+- `GET /v1/edi/outbound/coarri/{visitId}?kind=DISCHARGE|LOAD`: discharge or load report for a visit.
 - `GET /v1/edi/outbound/codeco/{gateTransactionId}` — gate report.
 
 ## Partner profiles
@@ -52,3 +52,13 @@ Defaults follow the SMDG message implementation guides. Version strings and BGM 
 | `DGS+IMD` | IMDG class and UN number |
 | `TMP` | reefer |
 | `SEL` | seal numbers |
+
+## VERMAS mapping (v1)
+
+| Segment | Field |
+|---|---|
+| `EQD+CN` | container number (must be active at the facility) |
+| `MEA+AAE+VGM` | verified gross mass, kg (required) |
+| `DOC` (`SM1`/`SM2`) | SOLAS weighing method |
+| `NAD+SPC` | responsible party / signatory |
+| `DTM+798` | VGM determination time |
