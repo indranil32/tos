@@ -19,7 +19,12 @@ export const UNIT_COLUMNS = `u.id, u.cargo_kind AS "cargoKind", u.unit_ref AS "u
   u.state, u.yard_position AS "yardPosition", u.pol, u.pod, u.dg_class AS "dgClass", u.dg_un_number AS "dgUnNumber",
   u.is_reefer AS "isReefer", u.time_in AS "timeIn", u.time_out AS "timeOut",
   u.vgm_kg AS "vgmKg", u.vgm_method AS "vgmMethod", u.stow_position AS "stowPosition",
-  (SELECT code FROM partners p WHERE p.id = u.line_operator_id) AS "lineOperator"`;
+  (SELECT code FROM partners p WHERE p.id = u.line_operator_id) AS "lineOperator",
+  (SELECT visit_ref FROM vessel_visits v WHERE v.id = u.visit_in_id) AS "visitIn",
+  (SELECT visit_ref FROM vessel_visits v WHERE v.id = u.visit_out_id) AS "visitOut",
+  (SELECT count(*)::int FROM unit_holds h WHERE h.unit_id = u.id AND h.released_at IS NULL) AS "activeHolds",
+  (SELECT string_agg(h.hold_type, ',' ORDER BY h.hold_type) FROM unit_holds h WHERE h.unit_id = u.id AND h.released_at IS NULL) AS "holdTypes",
+  u.created_at AS "createdAt"`;
 
 @Controller('v1/units')
 @FacilityScoped()
@@ -41,7 +46,7 @@ export class UnitsController {
       return tx.many(
         `SELECT ${UNIT_COLUMNS} FROM units u
           WHERE u.facility_id = $1 AND ($2::text IS NULL OR u.unit_ref = $2) AND ($3::text IS NULL OR u.state = $3)
-          ORDER BY u.created_at DESC LIMIT 500`,
+          ORDER BY u.created_at DESC LIMIT 5000`,
         [f.id, ref ?? null, state ?? null],
       );
     });

@@ -28,6 +28,26 @@
   },
   "clients": [
     {
+      "clientId": "tos-web",
+      "name": "TOS web app",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "redirectUris": [
+        "http://localhost:3000/*",
+        "http://localhost:5173/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000",
+        "http://localhost:5173"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3000/*##http://localhost:5173/*"
+      }
+    },
+    {
       "clientId": "tos-cli",
       "publicClient": true,
       "directAccessGrantsEnabled": true,

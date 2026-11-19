@@ -84,6 +84,21 @@ export class BillingController {
     return this.db.tx(ctx, async (tx) => ({ invoices: await this.billing.invoice(tx, ctx, await currentFacility(tx, ctx), b.customer) }));
   }
 
+  @Get('invoices')
+  @Roles(ROLES.billing)
+  listInvoices(@Ctx() ctx: RequestContext) {
+    return this.db.tx(ctx, async (tx) => {
+      const f = await currentFacility(tx, ctx);
+      return tx.many(
+        `SELECT i.id, i.invoice_no AS "invoiceNo", p.code AS customer, p.name AS "customerName", i.currency, i.total, i.status,
+                i.erp_export_status AS "erpExportStatus", i.issued_at AS "issuedAt",
+                (SELECT count(*)::int FROM charges c WHERE c.invoice_id = i.id) AS lines
+           FROM invoices i JOIN partners p ON p.id = i.customer_id WHERE i.facility_id = $1 ORDER BY i.issued_at DESC LIMIT 5000`,
+        [f.id],
+      );
+    });
+  }
+
   @Get('invoices/:id')
   @Roles(ROLES.billing)
   get(@Ctx() ctx: RequestContext, @Param('id', ParseUUIDPipe) id: string) {

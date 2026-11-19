@@ -76,12 +76,36 @@ export class VisitsController {
     });
   }
 
+  /** Vessel visits of the facility, newest first (list screen). */
+  @Get()
+  list(@Ctx() ctx: RequestContext) {
+    return this.db.tx(ctx, async (tx) => {
+      const f = await currentFacility(tx, ctx);
+      return tx.many(
+        `SELECT v.id, v.visit_ref AS "visitRef", v.phase, s.imo, s.name AS "vesselName", s.vessel_type AS "vesselType",
+                p.code AS "lineOperator", v.voyage_in AS "voyageIn", v.voyage_out AS "voyageOut", v.berth,
+                v.eta, v.etd, v.ata, v.atd, v.created_at AS "createdAt",
+                count(w.*) FILTER (WHERE w.status = 'PLANNED')::int AS "plannedMoves",
+                count(w.*) FILTER (WHERE w.status = 'COMPLETED')::int AS "completedMoves",
+                count(w.*) FILTER (WHERE w.status = 'COMPLETED' AND w.move_kind = 'DISCHARGE')::int AS "discharged",
+                count(w.*) FILTER (WHERE w.status = 'COMPLETED' AND w.move_kind = 'LOAD')::int AS "loaded"
+           FROM vessel_visits v JOIN vessels s ON s.id = v.vessel_id
+           LEFT JOIN partners p ON p.id = v.line_operator_id
+           LEFT JOIN work_instructions w ON w.visit_id = v.id
+          WHERE v.facility_id = $1
+          GROUP BY v.id, s.id, p.code ORDER BY coalesce(v.ata, v.eta, v.created_at) DESC LIMIT 2000`,
+        [f.id],
+      );
+    });
+  }
+
   @Get(':id')
   get(@Ctx() ctx: RequestContext, @Param('id', ParseUUIDPipe) id: string) {
     return this.db.tx(ctx, async (tx) => {
       const f = await currentFacility(tx, ctx);
       return tx.must(
-        `SELECT v.id, v.visit_ref AS "visitRef", v.phase, s.imo, s.name AS "vesselName", v.voyage_in AS "voyageIn",
+        `SELECT v.id, v.visit_ref AS "visitRef", v.phase, s.imo, s.name AS "vesselName", s.vessel_type AS "vesselType",
+                (SELECT p.code FROM partners p WHERE p.id = v.line_operator_id) AS "lineOperator", v.voyage_in AS "voyageIn",
                 v.voyage_out AS "voyageOut", v.berth, v.eta, v.etd, v.ata, v.atd,
                 (SELECT count(*)::int FROM work_instructions w WHERE w.visit_id = v.id AND w.status = 'PLANNED') AS "plannedMoves",
                 (SELECT count(*)::int FROM work_instructions w WHERE w.visit_id = v.id AND w.status = 'COMPLETED') AS "completedMoves"

@@ -49,6 +49,34 @@ export class EdiController {
     });
   }
 
+  @Get('messages')
+  @Roles(ROLES.edi, ROLES.planner, ROLES.viewer)
+  messages(@Ctx() ctx: RequestContext) {
+    return this.db.tx(ctx, async (tx) => {
+      const f = await currentFacility(tx, ctx);
+      return tx.many(
+        `SELECT id, direction, message_type AS "messageType", interchange_ref AS "interchangeRef", partner_code AS partner,
+                status, error, length(raw) AS bytes, created_at AS "createdAt"
+           FROM edi_messages WHERE facility_id = $1 ORDER BY created_at DESC LIMIT 5000`,
+        [f.id],
+      );
+    });
+  }
+
+  @Get('messages/:id')
+  @Roles(ROLES.edi, ROLES.planner, ROLES.viewer)
+  message(@Ctx() ctx: RequestContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.db.tx(ctx, async (tx) => {
+      const f = await currentFacility(tx, ctx);
+      return tx.must(
+        `SELECT id, direction, message_type AS "messageType", interchange_ref AS "interchangeRef", partner_code AS partner,
+                status, error, raw, created_at AS "createdAt" FROM edi_messages WHERE id = $1 AND facility_id = $2`,
+        [id, f.id],
+        'EDI message',
+      );
+    });
+  }
+
   @Get('outbound/coarri/:visitId')
   @Roles(ROLES.edi, ROLES.planner)
   @Header('Content-Type', 'application/edifact')

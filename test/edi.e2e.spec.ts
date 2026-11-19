@@ -93,4 +93,14 @@ describe('EDI gateway: COPRAR in, COARRI and CODECO out', () => {
     expect(el(segs.find((s) => s.tag === 'EQD'), 2)).toBe(c1);
     expect(el(segs.find((s) => s.tag === 'TDT'), 8, 0)).toBe('AD 7781');
   });
+
+  it('lists the EDI message log, with raw text on the detail', async () => {
+    const edi = await t.as(['tos:edi']);
+    const list = (await expectOk(edi.get('/v1/edi/messages'))).body;
+    const statuses = new Set(list.map((m: any) => m.status));
+    expect(statuses).toEqual(new Set(['ACCEPTED', 'REJECTED', 'GENERATED']));
+    expect(list[0].raw).toBeUndefined();
+    const one = (await expectOk(edi.get(`/v1/edi/messages/${list[0].id}`))).body;
+    expect(one.raw).toContain('UN');
+  });
 });

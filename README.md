@@ -2,7 +2,7 @@
 
 A Terminal Operating System for small and medium **multipurpose** terminals: containers, break-bulk/general cargo, RoRo and liquid bulk. One codebase runs as **multi-tenant SaaS** or **on-prem**, with billing built in, an API for every standard EDI message, and federated identity (OIDC, OAuth 2.0, SAML via the broker, SSO).
 
-> Status: v0.2. A full vessel call runs end to end: discharge to invoice, plus export gate-in, SOLAS VGM, load and departure. Transshipment works, and it deploys to Azure through GitHub Actions.
+> Status: v0.3, with web screens. v0.2: A full vessel call runs end to end: discharge to invoice, plus export gate-in, SOLAS VGM, load and departure. Transshipment works, and it deploys to Azure through GitHub Actions.
 
 ## What works today
 
@@ -15,6 +15,28 @@ A Terminal Operating System for small and medium **multipurpose** terminals: con
 - **Billing:** tariffs (contract rate over standard, facility over tenant-wide), charges accrued in the same transaction as the move, and invoices per customer and currency.
 - **EDI:** EDIFACT parser/writer, COPRAR and VERMAS in, COARRI (discharge and load) and CODECO out, and a message log with APERAK-style rejects.
 - **Events:** a transactional outbox with an event feed at `GET /v1/events`.
+
+## Web app
+
+React screens served by the API at `/`: dashboard, vessel visits (arrive, discharge, load, depart, load-list CSV, COARRI download), units (holds, VGM), yard view (colour by category, line, dwell or special cargo), gate, invoices and uninvoiced charges, EDI messages (upload, raw view) and the event feed.
+
+Every list uses one data grid with:
+- **Simple filters:** quick search and one-click status/category chips with counts.
+- **Advanced filters:** conditions combined with AND/OR, one level of nested groups, and operators per type (text, number, date incl. last/next N days, list, yes/no).
+- **Sorting:** click a header to sort; Shift+click or the sort builder adds levels; statuses sort in life-cycle order.
+- **Configurable columns:** show/hide and reorder, saved per user in the browser; CSV export of the filtered view.
+
+Colours come from one source, `web/src/theme/colors.ts`, which drives every badge, chip, flag, row accent, the yard and the in-app colour guide. See [docs/color-coding.md](docs/color-coding.md), which is generated from it.
+
+Local development without Keycloak:
+
+```bash
+node scripts/dev-idp.mjs &                       # dev-only OIDC provider on :8099 (password "pw")
+PLATFORM_OIDC_ISSUER=http://127.0.0.1:8099/realms/platform TRUSTED_ISSUER_PREFIXES=http://127.0.0.1:8099/realms/ \
+  OWNER_DATABASE_URL=... APP_DATABASE_URL=... npm start   # API on :3000
+(cd web && npm run dev)                          # UI on :5173, proxies /v1 to the API
+BASE_URL=http://127.0.0.1:3000 KC_URL=http://127.0.0.1:8099 DEMO_PASSWORD=pw node scripts/smoke.mjs && node scripts/demo-data.mjs
+```
 
 ## Run it
 

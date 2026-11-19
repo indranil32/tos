@@ -74,6 +74,20 @@ export class GateController {
     });
   }
 
+  @Get()
+  list(@Ctx() ctx: RequestContext) {
+    return this.db.tx(ctx, async (tx) => {
+      const f = await currentFacility(tx, ctx);
+      return tx.many(
+        `SELECT g.id, g.direction, g.unit_ref AS "unitRef", g.truck_plate AS "truckPlate", p.code AS haulier, g.status,
+                g.reject_reason AS "rejectReason", g.created_at AS "createdAt", u.cargo_kind AS "cargoKind", u.category
+           FROM gate_transactions g LEFT JOIN partners p ON p.id = g.haulier_id LEFT JOIN units u ON u.id = g.unit_id
+          WHERE g.facility_id = $1 ORDER BY g.created_at DESC LIMIT 5000`,
+        [f.id],
+      );
+    });
+  }
+
   @Get(':id')
   get(@Ctx() ctx: RequestContext, @Param('id', ParseUUIDPipe) id: string) {
     return this.db.tx(ctx, async (tx) => {

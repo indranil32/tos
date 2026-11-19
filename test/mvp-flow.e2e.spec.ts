@@ -1,4 +1,5 @@
 import { INestApplication } from '@nestjs/common';
+import request from 'supertest';
 import { container, createApp, expectOk, provisionTenant } from './support/harness';
 
 /**
@@ -151,5 +152,24 @@ describe('Vessel call: discharge to invoice', () => {
     const v2 = await expectOk(planner.post('/v1/visits', { visitRef: 'AUR-002', imo: '9321483', lineOperator: 'MSC', voyageIn: '002E' }));
     const r = await expectOk(planner.post(`/v1/visits/${v2.body.id}/load-lists`, { items: [{ unitRef: c1, isoType: '22G1' }] }));
     expect(r.body.created).toBe(1);
+  });
+
+  it('serves the list endpoints the web screens use', async () => {
+    const viewer = await t.as(['tos:viewer']);
+    const billing = await t.as(['tos:billing']);
+    const visits = (await expectOk(viewer.get('/v1/visits'))).body;
+    expect(visits.find((v: any) => v.visitRef === 'AUR-001')).toMatchObject({ phase: 'WORKING', discharged: 3, lineOperator: 'MSC' });
+    const units = (await expectOk(viewer.get('/v1/units'))).body;
+    expect(units.find((u: any) => u.unitRef === c2)).toMatchObject({ visitIn: 'AUR-001', activeHolds: 0, state: 'IN_YARD' });
+    const gate = (await expectOk(viewer.get('/v1/gate/transactions'))).body;
+    expect(gate.map((g: any) => g.status).sort()).toEqual(['COMPLETED', 'REJECTED']);
+    const invoices = (await expectOk(billing.get('/v1/invoices'))).body;
+    expect(invoices[0]).toMatchObject({ customer: 'MSC', lines: 5 });
+    const yard = (await expectOk(viewer.get('/v1/yard'))).body;
+    const a1 = yard.blocks.find((b: any) => b.code === 'A1');
+    expect(a1).toMatchObject({ blockType: 'CONTAINER_STACK', slots: 8, occupied: 1 });
+    expect(a1.units[0].unitRef).toBe(c2);
+    const cfg = (await expectOk(request(app.getHttpServer()).get('/v1/config'))).body;
+    expect(cfg).toMatchObject({ keycloakUrl: 'https://id.test', defaultTenant: 'demo', clientId: 'tos-web' });
   });
 });

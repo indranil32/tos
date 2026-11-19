@@ -51,6 +51,17 @@ jobs:
       - run: npm run lint
       - run: npm run build
       - run: npx jest --runInBand --ci --reporters=default
+      - name: Web app (types, unit tests, build)
+        working-directory: web
+        run: |
+          npm ci
+          npx tsc -b
+          npx vitest run
+          npx vite build
+      - name: Colour-coding document is up to date
+        run: |
+          (cd web && npm run colors:doc)
+          git diff --exit-code docs/color-coding.md
       - name: Smoke test syntax
         run: node --check scripts/smoke.mjs
 
@@ -64,7 +75,9 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - name: Dependency vulnerabilities (npm audit, runtime deps)
-        run: npm audit --omit=dev --audit-level=high
+        run: |
+          npm audit --omit=dev --audit-level=high
+          (cd web && npm ci --silent && npm audit --omit=dev --audit-level=high)
       - name: Secret scan (gitleaks)
         uses: gitleaks/gitleaks-action@v2
         env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
@@ -182,11 +195,21 @@ jobs:
             sleep 10
           done
           exit 1
+      - name: Web sign-in client (Keycloak)
+        run: |
+          KC_ADMIN_PASSWORD=$(az containerapp secret show -g "$RG" -n "$KC" --secret-name admin-password --query value -o tsv)
+          echo "::add-mask::$KC_ADMIN_PASSWORD"
+          KC_URL="https://$KC_FQDN" APP_URL="https://$FQDN" KC_ADMIN_PASSWORD="$KC_ADMIN_PASSWORD" node scripts/ensure-keycloak-client.mjs
       - name: Smoke test against Azure
         run: |
           DEMO_PASSWORD=$(az containerapp secret show -g "$RG" -n "$KC" --secret-name demo-password --query value -o tsv)
           echo "::add-mask::$DEMO_PASSWORD"
           BASE_URL="https://$FQDN" KC_URL="https://$KC_FQDN" DEMO_PASSWORD="$DEMO_PASSWORD" node scripts/smoke.mjs
+          BASE_URL="https://$FQDN" KC_URL="https://$KC_FQDN" DEMO_PASSWORD="$DEMO_PASSWORD" node scripts/demo-data.mjs || echo "demo data not loaded (non-fatal)"
+      - name: Web app is served
+        run: |
+          curl -fsS "https://$FQDN/" | grep -q '<div id="root">'
+          curl -fsS "https://$FQDN/v1/config" | grep -q tos-web
       - name: Roll back on failure
         if: failure() && env.PREV != ''
         run: |
