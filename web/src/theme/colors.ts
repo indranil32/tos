@@ -124,11 +124,38 @@ export const STATUS_DOMAINS = {
     },
   },
   moveStatus: {
-    kind: 'status', label: 'Move (work instruction) status', where: 'Visit moves',
+    kind: 'status', label: 'Move (work instruction) status', where: 'Visit moves, work queues, machine console',
     values: {
-      PLANNED: s('Planned', 'planned', 'Move planned, not executed.'),
+      PLANNED: s('Planned', 'planned', 'Move planned, waiting in its queue.'),
+      DISPATCHED: s('Dispatched', 'active', 'Sent to a machine; not started yet.'),
+      IN_PROGRESS: s('In progress', 'active', 'The machine is doing the move.'),
       COMPLETED: s('Completed', 'done', 'Move confirmed.'),
       CANCELLED: s('Cancelled', 'closed', 'Move cancelled (e.g. at departure).'),
+    },
+  },
+  equipmentStatus: {
+    kind: 'status', label: 'Equipment status', where: 'Equipment, work queues, machine console',
+    values: {
+      IDLE: s('Idle', 'planned', 'Logged on and available for the next job.'),
+      WORKING: s('Working', 'active', 'Holding or doing a job.'),
+      MAINTENANCE: s('Maintenance', 'attention', 'Planned service; jobs go back to their queues.'),
+      BREAKDOWN: s('Breakdown', 'blocked', 'Out of service; its jobs were re-routed to other machines.'),
+      OFFLINE: s('Offline', 'closed', 'No operator logged on.'),
+    },
+  },
+  queueStatus: {
+    kind: 'status', label: 'Work queue status', where: 'Work queues',
+    values: {
+      ACTIVE: s('Active', 'active', 'Machines take jobs from this queue.'),
+      SUSPENDED: s('Suspended', 'attention', 'Paused by the planner or control room; no new jobs are dispatched.'),
+      CLOSED: s('Closed', 'closed', 'Finished; remaining planned moves were taken out of the queue.'),
+    },
+  },
+  laneStatus: {
+    kind: 'status', label: 'Gate lane status', where: 'Terminal',
+    values: {
+      OPEN: s('Open', 'active', 'Lane in use.'),
+      CLOSED: s('Closed', 'closed', 'Lane closed.'),
     },
   },
   gateStatus: {
@@ -192,6 +219,25 @@ export const CATEGORY_DOMAINS = {
       BREAKBULK: { label: 'Break-bulk', color: '#8C6A3B', icon: '▥', meaning: 'General cargo lot.' },
       VEHICLE: { label: 'Vehicle', color: '#7B4FA0', icon: '◈', meaning: 'RoRo unit (ISO 3779 VIN).' },
       LIQUID: { label: 'Liquid bulk', color: '#1C7F80', icon: '◍', meaning: 'Tank parcel (m³ / t).' },
+    },
+  },
+  blockType: {
+    kind: 'category', label: 'Yard area type', where: 'Terminal map, yard',
+    values: {
+      CONTAINER_STACK: { label: 'Container stack', color: '#3B5BA5', icon: '▣', meaning: 'Bays, rows and tiers; counted in slots.' },
+      LAYDOWN: { label: 'Laydown', color: '#8C6A3B', icon: '▥', meaning: 'Open area for break-bulk and project cargo; m².' },
+      RORO_LANE: { label: 'RoRo lanes', color: '#7B4FA0', icon: '◈', meaning: 'Parking lanes for vehicles; vehicles or lane-metres.' },
+      TANK: { label: 'Tank', color: '#1C7F80', icon: '◍', meaning: 'Liquid bulk storage; m³.' },
+      WAREHOUSE: { label: 'Warehouse / CFS shed', color: '#5F6B2A', icon: '▦', meaning: 'Covered storage, stuffing and stripping; pallets.' },
+    },
+  },
+  facilityKind: {
+    kind: 'category', label: 'Facility kind', where: 'Terminal, facility selector',
+    values: {
+      SEAPORT: { label: 'Seaport', color: '#0072B2', icon: '⚓', meaning: 'Vessel calls at the quay.' },
+      DRY_PORT: { label: 'Dry port', color: '#A35A00', icon: '⛟', meaning: 'Inland terminal linked to a seaport by rail or road.' },
+      DEPOT: { label: 'Container depot', color: '#007A5A', icon: '▤', meaning: 'Empty containers: survey, repair, storage, release.' },
+      CFS: { label: 'CFS', color: '#9E4A7D', icon: '▦', meaning: 'Container freight station: LCL stuffing and stripping.' },
     },
   },
   direction: {

@@ -7,17 +7,20 @@ import { DatabaseService } from './db/database.service';
 import { ProblemFilter } from './errors';
 import { EventsService } from './events/events.service';
 import { EventsController } from './events/events.controller';
+import { EventStreamService } from './events/event-stream.service';
+import { StreamController } from './events/stream.controller';
 import { HealthController } from './health.controller';
 import { WebConfigController } from './web-config.controller';
 
 @Global()
 @Module({
-  controllers: [HealthController, EventsController, WebConfigController],
+  controllers: [HealthController, EventsController, StreamController, WebConfigController],
   providers: [
     { provide: APP_CONFIG, useFactory: () => loadConfig() },
     DatabaseService,
     KeyResolver,
     EventsService,
+    EventStreamService,
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_FILTER, useClass: ProblemFilter },
   ],

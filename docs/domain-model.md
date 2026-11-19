@@ -68,4 +68,4 @@ Quantity by basis: `PER_UNIT` 1; `PER_TEU` from the ISO length code (20' = 1, 40
 
 ## Concepts from the reference systems
 
-The model takes vocabulary that operators already know from N4 and CATOS (unit, visit, work instruction, hold, gate transaction, tariff/charge) but is designed independently. No schema or code is copied from either product.
+The model uses vocabulary that terminal operators already know (unit, visit, work instruction, hold, gate transaction, tariff/charge) and is designed independently.

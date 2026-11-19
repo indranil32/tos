@@ -40,6 +40,63 @@ const seed = Math.floor(Date.now() / 1000) % 900_000;
 let n = 0;
 const box = (prefix) => iso6346(prefix, (seed + n++ * 37) % 1_000_000);
 
+// Terminal layout, equipment and work queues (idempotent: runs on every deploy, existing records are kept).
+async function setupOperations() {
+  const ok = [200, 201, 409];
+  for (const b of [
+    { code: 'B1', name: 'Berth 1', startMarkM: 0, lengthM: 350, depthM: 16, bollardFrom: '1', bollardTo: '18' },
+    { code: 'B2', name: 'Berth 2', startMarkM: 350, lengthM: 300, depthM: 14, bollardFrom: '18', bollardTo: '33' },
+    { code: 'RR1', name: 'RoRo ramp', berthKind: 'RORO_RAMP', startMarkM: 650, lengthM: 180, depthM: 11 },
+    { code: 'J1', name: 'Liquid jetty', berthKind: 'LIQUID_JETTY', startMarkM: 830, lengthM: 120, depthM: 13 },
+  ]) await call('POST', '/v1/terminal/berths', b, ok);
+  for (const blk of [
+    { code: 'A2', blockType: 'CONTAINER_STACK', bays: 20, rows: 6, tiers: 5, equipmentKind: 'RTG', allowedSizes: ['20', '40'] },
+    { code: 'RF1', blockType: 'CONTAINER_STACK', bays: 10, rows: 4, tiers: 3, equipmentKind: 'RTG', reeferPlugs: 120 },
+    { code: 'DG1', blockType: 'CONTAINER_STACK', bays: 6, rows: 4, tiers: 2, equipmentKind: 'RS', dgClasses: ['2.1', '3', '6.1', '8', '9'] },
+    { code: 'T1', blockType: 'TANK', capacity: 25000 },
+    { code: 'CFS1', blockType: 'WAREHOUSE', capacity: 1800 },
+  ]) await call('POST', '/v1/yard-blocks', { facilityCode: FAC, yardCode: 'Y1', ...blk }, ok);
+  await call('POST', '/v1/terminal/rail-tracks', { code: 'RT1', lengthM: 650, maxWagons: 30 }, ok);
+  await call('POST', '/v1/terminal/rail-tracks', { code: 'RT2', lengthM: 650, maxWagons: 30 }, ok);
+  for (const l of [
+    { code: 'IN1', direction: 'IN', hasOcr: true }, { code: 'IN2', direction: 'IN', hasOcr: true },
+    { code: 'OUT1', direction: 'OUT', hasOcr: true }, { code: 'TRB', direction: 'BOTH', laneKind: 'TROUBLE' },
+  ]) await call('POST', '/v1/terminal/gate-lanes', l, ok);
+  await call('POST', '/v1/facilities', { complexCode: 'KHL', code: 'ICD1', name: 'Inland container depot', currency: 'AED', timezone: 'Asia/Dubai', kinds: ['DRY_PORT', 'DEPOT', 'CFS'] }, ok);
+  await call('POST', '/v1/terminal/links', { toFacility: 'ICD1', mode: 'RAIL', transitHours: 8 }, ok);
+
+  await call('POST', '/v1/equipment-pools', { code: 'HK', name: 'Housekeeping' }, ok);
+  await call('POST', '/v1/equipment-pools', { code: 'TT-B1', name: 'Trucks on berth 1' }, ok);
+  const machines = [
+    ['QC01', 'QC'], ['QC02', 'QC'], ['QC03', 'QC'], ['MHC1', 'MHC'],
+    ['RTG01', 'RTG', 'HK'], ['RTG02', 'RTG', 'HK'], ['RTG03', 'RTG', 'HK'], ['RTG04', 'RTG'],
+    ['RS01', 'RS'], ['ECH01', 'ECH'], ['FLT01', 'FLT'],
+    ...Array.from({ length: 6 }, (_, i) => [`TT${String(i + 1).padStart(2, '0')}`, 'TT', 'TT-B1']),
+  ];
+  for (const [code, kind, pool] of machines) await call('POST', '/v1/equipment', { code, kind, pool, twinLift: kind === 'QC' }, ok);
+  const eq = await call('GET', '/v1/equipment');
+  const offline = new Set(eq.filter((e) => e.status === 'OFFLINE').map((e) => e.code));
+  const ops = { QC01: 'Ravi', QC02: 'Omar', RTG01: 'Ali', RTG02: 'Sam', RS01: 'Joseph', TT01: 'Nadia', TT02: 'Hassan', TT03: 'Priya' };
+  for (const [code, operator] of Object.entries(ops)) if (offline.has(code)) await call('POST', `/v1/equipment/${code}/status`, { status: 'IDLE', operator }, ok);
+  if (offline.has('RTG03')) await call('POST', '/v1/equipment/RTG03/status', { status: 'BREAKDOWN', reason: 'Spreader fault' }, ok);
+  if (offline.has('QC03')) await call('POST', '/v1/equipment/QC03/status', { status: 'MAINTENANCE', reason: 'Planned service' }, ok);
+
+  await call('POST', '/v1/shifts', { code: 'DAY', name: 'Day shift', startsAt: '07:00', endsAt: '19:00' }, ok);
+  await call('POST', '/v1/shifts', { code: 'NIGHT', name: 'Night shift', startsAt: '19:00', endsAt: '07:00' }, ok);
+  await call('POST', '/v1/gangs', { code: 'G-A', name: 'Gang A', shift: 'DAY', members: ['Ravi', 'Omar', 'Nadia', 'Hassan'] }, ok);
+
+  await call('POST', '/v1/work-queues', { code: 'HK-NIGHT', name: 'Night housekeeping', powKind: 'HOUSEKEEPING', pool: 'HK', priority: 80 }, ok);
+  const q = await call('GET', '/v1/work-queues/HK-NIGHT');
+  if (q.instructions.length === 0) {
+    const inYard = (await call('GET', '/v1/units?state=IN_YARD')).filter((u) => u.cargoKind === 'CONTAINER').slice(0, 5);
+    for (const u of inYard) await call('POST', '/v1/work-queues/HK-NIGHT/instructions', { moves: [{ unitRef: u.unitRef }] }, ok);
+  }
+  console.log('Terminal layout, equipment and queues ready.');
+}
+
+const visits0 = await call('GET', '/v1/visits');
+if (visits0.length > 3 && !process.env.FORCE) await setupOperations();
+
 const visits = await call('GET', '/v1/visits');
 if (visits.length > 3 && !process.env.FORCE) { console.log(`Demo data already present (${visits.length} visits); set FORCE=1 to add more.`); process.exit(0); }
 
@@ -119,3 +176,5 @@ await fetch(`${BASE}/v1/edi/outbound/coarri/${v1.id}`, { headers: { Authorizatio
 // invoices for MSC; leave other lines' charges open
 await call('POST', '/v1/invoices', { customer: 'MSC' }, [201, 409]);
 console.log(`Demo data loaded: visits MSC-${tag}, HOE-${tag}, HAP-${tag}`);
+
+await setupOperations();

@@ -6,14 +6,18 @@ import { completeLogin, currentTenant, currentUser, loadConfig, login, logout, r
 import { ColorGuide } from './pages/ColorGuide';
 import { Dashboard } from './pages/Dashboard';
 import { EdiMessages } from './pages/Edi';
+import { EquipmentPage } from './pages/Equipment';
 import { Events } from './pages/Events';
 import { Gate } from './pages/Gate';
 import { InvoiceDetail, Invoices } from './pages/Invoices';
 import { UnitDetail, Units } from './pages/Units';
 import { VisitDetail, Visits } from './pages/Visits';
+import { Terminal } from './pages/Terminal';
+import { WorkQueueDetail, WorkQueues } from './pages/Work';
 import { YardView } from './pages/Yard';
+import { useLiveState } from './live';
 
-interface Facility { code: string; name: string; facilityType: string; unlocode: string | null; complexCode: string; currency: string }
+interface Facility { code: string; name: string; facilityType: string; kinds?: string[]; unlocode: string | null; complexCode: string; currency: string }
 
 interface Session {
   user: User;
@@ -51,7 +55,8 @@ function RequireSession({ children }: { children: ReactNode }) {
         return;
       }
       const facilities = await api.get<Facility[]>('/v1/facilities', { facility: false }).catch(() => [] as Facility[]);
-      const chosen = facilities.find((f) => f.code === currentFacility())?.code ?? facilities[0]?.code ?? '';
+      const chosen = facilities.find((f) => f.code === currentFacility())?.code
+        ?? facilities.find((f) => f.kinds?.includes('SEAPORT'))?.code ?? facilities[0]?.code ?? '';
       if (chosen) setFacility(chosen);
       setFac(chosen);
       setSession({ user, roles: rolesOf(user), tenant: currentTenant()!, facilities, facility: chosen, setFacility: () => undefined });
@@ -105,9 +110,12 @@ const NAV = [
   { to: '/visits', label: 'Vessel visits' },
   { to: '/units', label: 'Units' },
   { to: '/yard', label: 'Yard' },
+  { to: '/work', label: 'Work queues' },
+  { to: '/equipment', label: 'Equipment' },
   { to: '/gate', label: 'Gate' },
   { to: '/invoices', label: 'Invoices' },
   { to: '/edi', label: 'EDI messages' },
+  { to: '/terminal', label: 'Terminal' },
   { to: '/events', label: 'Events' },
   { to: '/colors', label: 'Colour guide' },
 ];
@@ -130,6 +138,7 @@ function Shell() {
             </select>
           </label>
           <span className="spacer" />
+          <LiveDot />
           <span className="user" title={s.roles.filter((r) => r.startsWith('tos:')).join(', ')}>{name}</span>
           <button className="link" onClick={() => logout()}>Sign out</button>
         </header>
@@ -142,6 +151,10 @@ function Shell() {
               <Route path="/units" element={<Units />} />
               <Route path="/units/:id" element={<UnitDetail />} />
               <Route path="/yard" element={<YardView />} />
+              <Route path="/work" element={<WorkQueues />} />
+              <Route path="/work/:code" element={<WorkQueueDetail />} />
+              <Route path="/equipment" element={<EquipmentPage />} />
+              <Route path="/terminal" element={<Terminal />} />
               <Route path="/gate" element={<Gate />} />
               <Route path="/invoices" element={<Invoices />} />
               <Route path="/invoices/:id" element={<InvoiceDetail />} />
@@ -155,4 +168,10 @@ function Shell() {
       </div>
     </div>
   );
+}
+
+function LiveDot() {
+  const state = useLiveState();
+  const label = { live: 'Live', connecting: 'Connecting…', offline: 'Offline' }[state];
+  return <span className={`live-dot ${state}`} title={state === 'live' ? 'Screens update as events happen' : 'Live updates paused; retrying'}>{label}</span>;
 }

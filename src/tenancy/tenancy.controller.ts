@@ -50,17 +50,25 @@ const FacilityBody = z.object({
   smdgCode: z.string().max(10).optional(),
   timezone: z.string().default('UTC'),
   currency: currency.default('USD'),
+  kinds: z.array(z.enum(['SEAPORT', 'DRY_PORT', 'DEPOT', 'CFS'])).min(1).default(['SEAPORT']),
 });
 const YardBody = z.object({ facilityCode: code, code, name: z.string().min(1) });
 const BlockBody = z.object({
   facilityCode: code,
   yardCode: code,
   code,
-  blockType: z.enum(['CONTAINER_STACK', 'LAYDOWN', 'RORO_LANE', 'TANK']),
+  blockType: z.enum(['CONTAINER_STACK', 'LAYDOWN', 'RORO_LANE', 'TANK', 'WAREHOUSE']),
   bays: z.number().int().positive().default(1),
   rows: z.number().int().positive().default(1),
   tiers: z.number().int().positive().default(1),
   capacity: z.number().positive().optional(),
+  capacityUnit: z.enum(['SLOTS', 'M2', 'LANE_M', 'VEHICLES', 'M3', 'PALLETS']).optional(),
+  equipmentKind: z.string().max(20).optional(),
+  allowedSizes: z.array(z.enum(['20', '40', '45'])).min(1).default(['20', '40', '45']),
+  maxStackKg: z.number().int().positive().optional(),
+  reeferPlugs: z.number().int().min(0).default(0),
+  dgClasses: z.array(z.string().regex(/^[1-9](\.[1-6])?$/, 'IMDG class, e.g. 3 or 2.1')).default([]),
+  map: z.object({ x: z.number(), y: z.number(), w: z.number().positive(), h: z.number().positive(), angle: z.number().default(0) }).optional(),
 });
 const PartnerBody = z.object({
   code,
@@ -96,10 +104,10 @@ export class MasterDataController {
     return this.db.tx(ctx, async (tx) => {
       const c = await tx.must('SELECT id FROM complexes WHERE code = $1', [b.complexCode], `Complex ${b.complexCode}`);
       return tx.one(
-        `INSERT INTO facilities (tenant_id, complex_id, code, name, facility_type, unlocode, smdg_code, timezone, currency)
-         VALUES (current_tenant(), $1,$2,$3,$4,$5,$6,$7,$8)
-         RETURNING id, code, name, facility_type AS "facilityType", unlocode, smdg_code AS "smdgCode", timezone, currency`,
-        [c.id, b.code, b.name, b.facilityType, b.unlocode ?? null, b.smdgCode ?? null, b.timezone, b.currency],
+        `INSERT INTO facilities (tenant_id, complex_id, code, name, facility_type, unlocode, smdg_code, timezone, currency, kinds)
+         VALUES (current_tenant(), $1,$2,$3,$4,$5,$6,$7,$8,$9)
+         RETURNING id, code, name, facility_type AS "facilityType", unlocode, smdg_code AS "smdgCode", timezone, currency, kinds`,
+        [c.id, b.code, b.name, b.facilityType, b.unlocode ?? null, b.smdgCode ?? null, b.timezone, b.currency, b.kinds],
       );
     });
   }
@@ -108,7 +116,7 @@ export class MasterDataController {
   listFacilities(@Ctx() ctx: RequestContext) {
     return this.db.tx(ctx, (tx) =>
       tx.many(
-        `SELECT f.id, f.code, f.name, f.facility_type AS "facilityType", f.unlocode, c.code AS "complexCode", f.currency
+        `SELECT f.id, f.code, f.name, f.facility_type AS "facilityType", f.kinds, f.unlocode, c.code AS "complexCode", f.currency, f.timezone
            FROM facilities f JOIN complexes c ON c.id = f.complex_id
           WHERE ($1::text[] IS NULL OR f.code = ANY($1)) ORDER BY c.code, f.code`,
         [ctx.allowedFacilities ?? null],
@@ -140,10 +148,14 @@ export class MasterDataController {
         `Yard ${b.facilityCode}/${b.yardCode}`,
       );
       return tx.one(
-        `INSERT INTO yard_blocks (tenant_id, yard_id, code, block_type, bays, rows_count, tiers, capacity)
-         VALUES (current_tenant(), $1,$2,$3,$4,$5,$6,$7)
-         RETURNING id, code, block_type AS "blockType", bays, rows_count AS rows, tiers, capacity`,
-        [y.id, b.code, b.blockType, b.bays, b.rows, b.tiers, b.capacity ?? null],
+        `INSERT INTO yard_blocks (tenant_id, yard_id, code, block_type, bays, rows_count, tiers, capacity, capacity_unit, equipment_kind,
+                                  allowed_sizes, max_stack_kg, reefer_plugs, dg_classes, map_x, map_y, map_w, map_h, map_angle)
+         VALUES (current_tenant(), $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+         RETURNING id, code, block_type AS "blockType", bays, rows_count AS rows, tiers, capacity, capacity_unit AS "capacityUnit",
+                   equipment_kind AS "equipmentKind", allowed_sizes AS "allowedSizes", max_stack_kg AS "maxStackKg",
+                   reefer_plugs AS "reeferPlugs", dg_classes AS "dgClasses"`,
+        [y.id, b.code, b.blockType, b.bays, b.rows, b.tiers, b.capacity ?? null, b.capacityUnit ?? defaultUnit(b.blockType), b.equipmentKind ?? null,
+         b.allowedSizes, b.maxStackKg ?? null, b.reeferPlugs, b.dgClasses, b.map?.x ?? null, b.map?.y ?? null, b.map?.w ?? null, b.map?.h ?? null, b.map?.angle ?? 0],
       );
     });
   }
@@ -168,6 +180,10 @@ export class MasterDataController {
       tx.many('SELECT id, code, name, roles, is_aeo AS "isAeo" FROM partners ORDER BY code'),
     );
   }
+}
+
+function defaultUnit(blockType: string): string {
+  return { CONTAINER_STACK: 'SLOTS', LAYDOWN: 'M2', RORO_LANE: 'VEHICLES', TANK: 'M3', WAREHOUSE: 'PALLETS' }[blockType] ?? 'SLOTS';
 }
 
 export function assertTenant(ctx: RequestContext) {

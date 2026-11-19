@@ -62,3 +62,66 @@ export interface YardBlock {
 }
 
 export interface Partner { id: string; code: string; name: string; roles: string[] }
+
+export interface Equipment {
+  id: string;
+  code: string;
+  kind: string;
+  pool: string | null;
+  status: string;
+  statusSince: string;
+  statusReason: string | null;
+  operator: string | null;
+  position: string | null;
+  maxWeightKg: number | null;
+  twinLift: boolean;
+  openJobs: number;
+}
+
+export interface WorkQueue {
+  id: string;
+  code: string;
+  name: string;
+  powKind: string;
+  priority: number;
+  status: string;
+  visitRef: string | null;
+  equipment: string | null;
+  pool: string | null;
+  planned: number;
+  active: number;
+  completed: number;
+  createdAt: string;
+}
+
+export interface WorkInstruction {
+  id: string;
+  queue: string | null;
+  sequence: number | null;
+  moveKind: string;
+  status: string;
+  unitRef: string;
+  isoType: string | null;
+  cargoKind: string;
+  visitRef: string | null;
+  fromPosition: string | null;
+  toPosition: string | null;
+  plannedPosition: string | null;
+  equipment: string | null;
+  dispatchedAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  version: number;
+}
+
+export interface MapBox { x: number; y: number; w: number; h: number; angle: number }
+
+export interface TerminalMap {
+  facility: string;
+  kinds: string[];
+  berths: { id: string; code: string; name: string; berthKind: string; startMarkM: number; lengthM: number; depthM: number | null; bollardFrom: string | null; bollardTo: string | null; map: MapBox | null }[];
+  blocks: { id: string; code: string; yard: string; blockType: string; bays: number; rows: number; tiers: number; capacity: number | null; capacityUnit: string | null; equipmentKind: string | null; allowedSizes: string[]; maxStackKg: number | null; reeferPlugs: number; dgClasses: string[]; occupied: number; map: MapBox | null }[];
+  railTracks: { id: string; code: string; lengthM: number; maxWagons: number | null; map: MapBox | null }[];
+  gateLanes: { id: string; code: string; direction: string; laneKind: string; hasOcr: boolean; status: string; map: MapBox | null }[];
+  links: { id: string; fromFacility: string; toFacility: string; toKinds: string[]; mode: string; transitHours: number; bonded: boolean }[];
+}

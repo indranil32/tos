@@ -72,7 +72,7 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "X-Facility: MPT1" $API/v1/units
 
 ## Company subscription
 
-Use `infra/prod.bicepparam` (General Purpose PostgreSQL, UAE North, Entra ID issuers trusted) and review with IT security: put PostgreSQL on a private endpoint, front the apps with Front Door/WAF, move Keycloak to `KC_HOSTNAME` on a company domain, and federate the AD Ports Entra tenant into each tenant realm (SAML or OIDC).
+Use `infra/prod.bicepparam` (General Purpose PostgreSQL, UAE North, Entra ID issuers trusted) and review with IT security: put PostgreSQL on a private endpoint, front the apps with Front Door/WAF, move Keycloak to `KC_HOSTNAME` on a company domain, and federate the customer's Entra ID tenant into each tenant realm (SAML or OIDC).
 
 ## Status and lessons from the first deployment (trial subscription)
 

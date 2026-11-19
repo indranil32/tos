@@ -181,7 +181,7 @@ export class VesselService {
     );
     await tx.exec(
       `UPDATE work_instructions SET status = 'COMPLETED', to_position = $3, from_position = 'VESSEL', che_id = $4, completed_at = $5
-        WHERE unit_id = $1 AND visit_id = $2 AND move_kind = 'DISCHARGE' AND status = 'PLANNED'`,
+        WHERE unit_id = $1 AND visit_id = $2 AND move_kind = 'DISCHARGE' AND status IN ('PLANNED','DISPATCHED','IN_PROGRESS')`,
       [unit.id, visitId, alloc.position, body.cheId ?? null, at],
     );
     if (visit.phase === 'ARRIVED') await tx.exec(`UPDATE vessel_visits SET phase = 'WORKING' WHERE id = $1`, [visitId]);
@@ -207,7 +207,7 @@ export class VesselService {
       [visitId],
     );
     const cancelled = await tx.exec(
-      `UPDATE work_instructions SET status = 'CANCELLED' WHERE visit_id = $1 AND status = 'PLANNED'`,
+      `UPDATE work_instructions SET status = 'CANCELLED', equipment_id = NULL WHERE visit_id = $1 AND status IN ('PLANNED','DISPATCHED','IN_PROGRESS')`,
       [visitId],
     );
     const notDischarged = await tx.exec(
@@ -260,7 +260,7 @@ export async function loadUnit(
   );
   const updated = await tx.exec(
     `UPDATE work_instructions SET status = 'COMPLETED', from_position = $3, to_position = $4, che_id = $5, completed_at = $6
-      WHERE unit_id = $1 AND visit_id = $2 AND move_kind = 'LOAD' AND status = 'PLANNED'`,
+      WHERE unit_id = $1 AND visit_id = $2 AND move_kind = 'LOAD' AND status IN ('PLANNED','DISPATCHED','IN_PROGRESS')`,
     [unit.id, visitId, unit.yard_position, body.stowPosition ?? 'VESSEL', body.cheId ?? null, at],
   );
   if (!updated) {

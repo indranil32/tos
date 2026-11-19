@@ -47,6 +47,8 @@ jobs:
           CREATE ROLE tos_app LOGIN PASSWORD 'app';
           CREATE DATABASE tos_test OWNER tos_owner;
           SQL
+      - name: No third-party product or company names
+        run: node scripts/name-guard.mjs
       - run: npm ci
       - run: npm run lint
       - run: npm run build

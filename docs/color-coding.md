@@ -56,13 +56,46 @@ Shown on: Vessel visits, dashboard, visit detail.
 
 ### Move (work instruction) status
 
-Shown on: Visit moves.
+Shown on: Visit moves, work queues, machine console.
 
 | Value | Label | Tone | Meaning |
 |---|---|---|---|
-| `PLANNED` | ○ Planned | Planned | Move planned, not executed. |
+| `PLANNED` | ○ Planned | Planned | Move planned, waiting in its queue. |
+| `DISPATCHED` | ● Dispatched | In progress | Sent to a machine; not started yet. |
+| `IN_PROGRESS` | ● In progress | In progress | The machine is doing the move. |
 | `COMPLETED` | ✓ Completed | Done | Move confirmed. |
 | `CANCELLED` | – Cancelled | Closed | Move cancelled (e.g. at departure). |
+
+### Equipment status
+
+Shown on: Equipment, work queues, machine console.
+
+| Value | Label | Tone | Meaning |
+|---|---|---|---|
+| `IDLE` | ○ Idle | Planned | Logged on and available for the next job. |
+| `WORKING` | ● Working | In progress | Holding or doing a job. |
+| `MAINTENANCE` | ! Maintenance | Needs attention | Planned service; jobs go back to their queues. |
+| `BREAKDOWN` | ✕ Breakdown | Blocked / failed | Out of service; its jobs were re-routed to other machines. |
+| `OFFLINE` | – Offline | Closed | No operator logged on. |
+
+### Work queue status
+
+Shown on: Work queues.
+
+| Value | Label | Tone | Meaning |
+|---|---|---|---|
+| `ACTIVE` | ● Active | In progress | Machines take jobs from this queue. |
+| `SUSPENDED` | ! Suspended | Needs attention | Paused by the planner or control room; no new jobs are dispatched. |
+| `CLOSED` | – Closed | Closed | Finished; remaining planned moves were taken out of the queue. |
+
+### Gate lane status
+
+Shown on: Terminal.
+
+| Value | Label | Tone | Meaning |
+|---|---|---|---|
+| `OPEN` | ● Open | In progress | Lane in use. |
+| `CLOSED` | – Closed | Closed | Lane closed. |
 
 ### Gate transaction status
 
@@ -137,6 +170,29 @@ Shown on: Units, visits, gate, yard tooltips.
 | `BREAKBULK` | ▥ | Break-bulk | `#8C6A3B` | white (5.0:1) | General cargo lot. |
 | `VEHICLE` | ◈ | Vehicle | `#7B4FA0` | white (6.1:1) | RoRo unit (ISO 3779 VIN). |
 | `LIQUID` | ◍ | Liquid bulk | `#1C7F80` | white (4.8:1) | Tank parcel (m³ / t). |
+
+### Yard area type
+
+Shown on: Terminal map, yard.
+
+| Value | Icon | Label | Colour | Text on fill | Meaning |
+|---|---|---|---|---|---|
+| `CONTAINER_STACK` | ▣ | Container stack | `#3B5BA5` | white (6.5:1) | Bays, rows and tiers; counted in slots. |
+| `LAYDOWN` | ▥ | Laydown | `#8C6A3B` | white (5.0:1) | Open area for break-bulk and project cargo; m². |
+| `RORO_LANE` | ◈ | RoRo lanes | `#7B4FA0` | white (6.1:1) | Parking lanes for vehicles; vehicles or lane-metres. |
+| `TANK` | ◍ | Tank | `#1C7F80` | white (4.8:1) | Liquid bulk storage; m³. |
+| `WAREHOUSE` | ▦ | Warehouse / CFS shed | `#5F6B2A` | white (5.8:1) | Covered storage, stuffing and stripping; pallets. |
+
+### Facility kind
+
+Shown on: Terminal, facility selector.
+
+| Value | Icon | Label | Colour | Text on fill | Meaning |
+|---|---|---|---|---|---|
+| `SEAPORT` | ⚓ | Seaport | `#0072B2` | white (5.2:1) | Vessel calls at the quay. |
+| `DRY_PORT` | ⛟ | Dry port | `#A35A00` | white (5.2:1) | Inland terminal linked to a seaport by rail or road. |
+| `DEPOT` | ▤ | Container depot | `#007A5A` | white (5.3:1) | Empty containers: survey, repair, storage, release. |
+| `CFS` | ▦ | CFS | `#9E4A7D` | white (5.6:1) | Container freight station: LCL stuffing and stripping. |
 
 ### Direction
 

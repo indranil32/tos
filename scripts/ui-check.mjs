@@ -65,6 +65,28 @@ await page.waitForSelector('table.grid tbody tr');
 await page.click('table.grid tbody tr >> nth=0');
 await page.waitForSelector('.facts');
 await shot('16-unit-detail');
+// terminal, equipment, work queues and the machine console
+await page.click('nav a[href="/terminal"]');
+await page.waitForSelector('.sketch svg');
+await shot('17-terminal');
+await page.click('nav a[href="/equipment"]');
+await page.waitForSelector('table.grid tbody tr');
+await shot('18-equipment');
+await page.click('nav a[href="/work"]');
+await page.waitForSelector('table.grid tbody tr');
+await page.selectOption('.console select[aria-label=Machine]', 'RTG01');
+await page.click('.console button:has-text("Next job")');
+await page.waitForSelector('.job');
+await shot('19-work-console-job');
+const unitOnJob = (await page.textContent('.job .mono.big')).trim();
+await page.click('.job button:has-text("Complete")');
+await page.waitForSelector('.console .muted, .job', { timeout: 10000 });
+console.log('completed housekeeping move for', unitOnJob);
+await page.click('table.grid tbody tr >> nth=0');
+await page.waitForSelector('h1:has-text("HK-")');
+await page.waitForTimeout(1500); // live update from the stream
+await shot('20-work-queue-detail');
+console.log('live indicator:', (await page.textContent('.live-dot')).trim());
 console.log('console errors:', errors.length ? errors : 'none');
 await browser.close();
 process.exitCode = errors.length ? 1 : 0;
