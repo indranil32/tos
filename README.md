@@ -27,7 +27,7 @@ Demo logins (Keycloak, client `tos-cli`), password `demo_dev_only` locally: plat
 
 ## Deploy to Azure
 
-The same pattern as the ESG app: Bicep, Container Apps, PostgreSQL Flexible, GHCR images, OIDC login from GitHub Actions, then a smoke test with rollback. See [docs/azure-deploy.md](docs/azure-deploy.md).
+The same pattern as the ESG app: Bicep, Container Apps, PostgreSQL Flexible, GHCR images, OIDC login from GitHub Actions, then a smoke test with rollback. Every push to `main` deploys to the dev environment (`rg-tos-dev`). See [docs/azure-deploy.md](docs/azure-deploy.md).
 
 ## Develop
 

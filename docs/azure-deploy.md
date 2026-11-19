@@ -74,6 +74,12 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "X-Facility: MPT1" $API/v1/units
 
 Use `infra/prod.bicepparam` (General Purpose PostgreSQL, UAE North, Entra ID issuers trusted) and review with IT security: put PostgreSQL on a private endpoint, front the apps with Front Door/WAF, move Keycloak to `KC_HOSTNAME` on a company domain, and federate the AD Ports Entra tenant into each tenant realm (SAML or OIDC).
 
-## Not verified from here
+## Status and lessons from the first deployment (trial subscription)
 
-The template compiles and lints cleanly with Bicep 0.49 and the smoke test passes against a local stack with real OIDC discovery. Nothing has been deployed to Azure from this environment yet, so expect small fixes on the first real run (most likely: GHCR package visibility, Keycloak start-up time).
+Deployed and smoke-tested from GitHub Actions on 19 Nov 2026 (API + Keycloak in `rg-tos-dev`, databases on the ESG server).
+
+- **Second PostgreSQL refused.** The trial rejected another B1ms server ("SKU not available") in UK South and Central India, so dev shares the ESG server via `TOS_SHARE_PG_FROM`.
+- **Schema ownership on Azure.** On Flexible Server the `public` schema of a new database isn't owned by the database owner; the bootstrap gives it to `tosadmin`.
+- **ID-based OIDC subject.** This repo's Actions tokens carry `repo:indranil32@994801/tos@1463167250:environment:azure-dev`; a federated credential with that exact subject was added (`github-azure-dev-idsubject`).
+- **Environment variables aren't visible to a job-level `if:`**, so the deploy job doesn't gate on them.
+- **Keycloak's first start is slow** (schema creation and realm import over a cross-region database link, about 5 minutes); later restarts take about 4 minutes. Avoid redeploying while it's still starting.
