@@ -139,7 +139,7 @@ jobs:
     name: Deploy to Azure and smoke test
     timeout-minutes: 30
     needs: build
-    if: github.ref == 'refs/heads/main' && vars.AZURE_CLIENT_ID != '' && (github.event_name == 'push' || inputs.deploy)
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.deploy)
     runs-on: ubuntu-latest
     environment: azure-dev
     permissions:
