@@ -44,6 +44,13 @@ SELECT 'CREATE DATABASE tos OWNER tosadmin' WHERE NOT EXISTS (SELECT 1 FROM pg_d
 SELECT 'CREATE DATABASE keycloak OWNER tosadmin' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'keycloak') \gexec
 REVOKE CONNECT ON DATABASE tos FROM PUBLIC;
 REVOKE CONNECT ON DATABASE keycloak FROM PUBLIC;
+-- Azure Flexible Server: the public schema of a new database is not owned by the database owner.
+\c tos
+DO $$ BEGIN EXECUTE 'ALTER SCHEMA public OWNER TO tosadmin';
+EXCEPTION WHEN insufficient_privilege THEN EXECUTE 'GRANT ALL ON SCHEMA public TO tosadmin'; END $$;
+\c keycloak
+DO $$ BEGIN EXECUTE 'ALTER SCHEMA public OWNER TO tosadmin';
+EXCEPTION WHEN insufficient_privilege THEN EXECUTE 'GRANT ALL ON SCHEMA public TO tosadmin'; END $$;
 SQL
   unset ADMIN_URL
   say "tosadmin login and tos/keycloak databases ready"
