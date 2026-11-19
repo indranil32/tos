@@ -48,6 +48,7 @@ export async function runMigrations(ownerUrl: string, appRole: string, dir = mig
       END $$`);
       await client.query("SELECT set_config('tos.app_pw', '', false)");
     }
+    await client.query(`DO $$ BEGIN EXECUTE format('GRANT CONNECT ON DATABASE %I TO ${appRole}', current_database()); END $$`);
     await client.query(`GRANT USAGE ON SCHEMA public TO ${appRole}`);
     await client.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${appRole}`);
     await client.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${appRole}`);

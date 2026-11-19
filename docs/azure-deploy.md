@@ -42,6 +42,16 @@ GitHub push ──► test (Jest on PostgreSQL) ─┐
 
 5. **Deploy**: Actions → CI/CD → Run workflow (or push to `main`). The first smoke run also provisions the `demo` tenant, terminal `MPT1`, yard, line `MSC` and tariffs.
 
+### Trial subscription: sharing the ESG PostgreSQL server
+
+The personal trial refuses a second PostgreSQL B1ms server (tried UK South and Central India). For dev, the TOS can share the ESG server with its **own login and databases**:
+
+```bash
+TOS_SHARE_PG_FROM=rg-esg-dev-in/ca-esgdev-s3ns6dgxqvym6 infra/bootstrap-dev.sh
+```
+
+The ESG admin URL is read once in Cloud Shell to create `tosadmin` (CREATEROLE, not superuser) and the `tos` and `keycloak` databases, both owned by `tosadmin` with `CONNECT` revoked from `PUBLIC`. The TOS deployment only receives the `tosadmin` password, and the TOS runtime role `tos_app` can connect only to `tos`. For the company subscription, give the TOS its own server.
+
 ## After deployment
 
 | What | Where |

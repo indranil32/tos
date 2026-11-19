@@ -9,6 +9,8 @@ param dbLocation = readEnvironmentVariable('TOS_DB_LOCATION', 'centralindia')
 //   az containerapp env list --query "[0].id" -o tsv
 param existingEnvironmentId = readEnvironmentVariable('TOS_ENVIRONMENT_ID', '')
 param maxReplicas = 1
+// Shared PostgreSQL (set by infra/bootstrap-dev.sh when TOS_SHARE_PG_FROM is given): separate login and databases.
+param externalPgHost = readEnvironmentVariable('TOS_EXTERNAL_PG_HOST', '')
 // Secrets come from the shell, never from this file:
 //   export TOS_DB_PASSWORD=$(openssl rand -base64 24) TOS_APP_DB_PASSWORD=$(openssl rand -hex 24) \
 //          TOS_KC_ADMIN_PASSWORD=$(openssl rand -base64 18) TOS_DEMO_PASSWORD=$(openssl rand -base64 18) \

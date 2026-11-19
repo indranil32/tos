@@ -53,6 +53,9 @@ param registryUser string = ''
 @secure()
 param registryPassword string = ''
 
+@description('Host of an existing PostgreSQL server to use instead of creating one (its tos and keycloak databases and the tosadmin login must exist). Blank creates a server.')
+param externalPgHost string = ''
+
 param dbSku string = 'Standard_B1ms'
 param dbTier string = 'Burstable'
 param maxReplicas int = 2
@@ -61,6 +64,7 @@ var uniq = uniqueString(resourceGroup().id)
 var appName = 'ca-${prefix}-${uniq}'
 var kcName = 'kc-${prefix}-${uniq}'
 var reuseEnv = existingEnvironmentId != ''
+var ownPg = externalPgHost == ''
 
 // ---------------------------------------------------------------- monitoring
 resource logs 'Microsoft.OperationalInsights/workspaces@2023-09-01' = if (!reuseEnv) {
@@ -70,7 +74,7 @@ resource logs 'Microsoft.OperationalInsights/workspaces@2023-09-01' = if (!reuse
 }
 
 // ---------------------------------------------------------------- database
-resource pg 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
+resource pg 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = if (ownPg) {
   name: 'psql-${prefix}-${uniq}-${dbLocation}'
   location: dbLocation
   sku: { name: dbSku, tier: dbTier }
@@ -83,17 +87,17 @@ resource pg 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
     highAvailability: { mode: 'Disabled' }
   }
 }
-resource tosDb 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-08-01' = {
+resource tosDb 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-08-01' = if (ownPg) {
   parent: pg
   name: 'tos'
 }
-resource kcDb 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-08-01' = {
+resource kcDb 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-08-01' = if (ownPg) {
   parent: pg
   name: 'keycloak'
   dependsOn: [tosDb]
 }
 // Lets Azure-hosted services connect. Use VNet integration / private endpoint for production.
-resource pgAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2024-08-01' = {
+resource pgAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2024-08-01' = if (ownPg) {
   parent: pg
   name: 'AllowAzureServices'
   properties: { startIpAddress: '0.0.0.0', endIpAddress: '0.0.0.0' }
@@ -121,7 +125,7 @@ var envId = reuseEnv ? existingEnvironmentId : newEnv.id
 var envDomain = reuseEnv ? oldEnv!.properties.defaultDomain : newEnv!.properties.defaultDomain
 var kcUrl = 'https://${kcName}.${envDomain}'
 
-var pgHost = pg.properties.fullyQualifiedDomainName
+var pgHost = ownPg ? pg!.properties.fullyQualifiedDomainName : externalPgHost
 var registries = registryUser == '' ? [] : [
   { server: 'ghcr.io', username: registryUser, passwordSecretRef: 'registry-password' }
 ]

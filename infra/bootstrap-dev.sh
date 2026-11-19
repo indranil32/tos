@@ -27,7 +27,29 @@ export TOS_KC_ADMIN_PASSWORD=${TOS_KC_ADMIN_PASSWORD:-$(openssl rand -hex 16)}
 export TOS_DEMO_PASSWORD=${TOS_DEMO_PASSWORD:-$(openssl rand -hex 12)}
 export TOS_EDI_PARTNER_SECRET=${TOS_EDI_PARTNER_SECRET:-$(openssl rand -hex 24)}
 
-say "Deploying infra/main.bicep (PostgreSQL takes 5-10 minutes)..."
+# Optional: share an existing PostgreSQL server (trial subscriptions may refuse a second one).
+# TOS_SHARE_PG_FROM=<resource-group>/<container-app> names an app whose 'database-url' secret holds that
+# server's admin URL. It is used once, here, to create a separate tosadmin login and the tos/keycloak
+# databases; the TOS deployment only ever receives the tosadmin password.
+if [ -n "${TOS_SHARE_PG_FROM:-}" ]; then
+  SRC_RG=${TOS_SHARE_PG_FROM%%/*}; SRC_APP=${TOS_SHARE_PG_FROM#*/}
+  ADMIN_URL=$(az containerapp secret show -g "$SRC_RG" -n "$SRC_APP" --secret-name database-url --query value -o tsv)
+  export TOS_EXTERNAL_PG_HOST=$(python3 -c "import sys,urllib.parse as u;print(u.urlparse(sys.argv[1]).hostname)" "$ADMIN_URL")
+  say "Sharing PostgreSQL server $TOS_EXTERNAL_PG_HOST (separate login and databases)"
+  psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -q -v pw="$TOS_DB_PASSWORD" <<'SQL'
+SELECT format('CREATE ROLE tosadmin LOGIN CREATEROLE PASSWORD %L', :'pw') WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tosadmin') \gexec
+SELECT format('ALTER ROLE tosadmin LOGIN CREATEROLE PASSWORD %L', :'pw') \gexec
+GRANT tosadmin TO CURRENT_USER;
+SELECT 'CREATE DATABASE tos OWNER tosadmin' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'tos') \gexec
+SELECT 'CREATE DATABASE keycloak OWNER tosadmin' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'keycloak') \gexec
+REVOKE CONNECT ON DATABASE tos FROM PUBLIC;
+REVOKE CONNECT ON DATABASE keycloak FROM PUBLIC;
+SQL
+  unset ADMIN_URL
+  say "tosadmin login and tos/keycloak databases ready"
+fi
+
+say "Deploying infra/main.bicep (a new PostgreSQL server takes 5-10 minutes)..."
 az deployment group create -g "$RG" -n tos-dev -f infra/main.bicep -p infra/dev.bicepparam \
   --query properties.outputs -o json > "$HOME/tos-outputs.json"
 say "Deployment done"
