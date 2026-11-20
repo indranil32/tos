@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Put } from '@nestjs/common';
 import { z } from 'zod';
 import { Ctx, FacilityScoped, Roles } from '../platform/auth/decorators';
 import { RequestContext, ROLES } from '../platform/context';
@@ -15,7 +15,19 @@ const VesselBody = z.object({
   callSign: z.string().optional(),
   vesselType: z.enum(['CONTAINER', 'GENERAL_CARGO', 'RORO', 'TANKER', 'BULK', 'CRUISE', 'OTHER']).default('CONTAINER'),
   loaM: z.number().positive().optional(),
+  beamM: z.number().positive().optional(),
+  maxDraftM: z.number().positive().optional(),
+  maxBay: z.number().int().min(1).max(199).optional(),
+  maxRow: z.number().int().min(0).max(30).optional(),
+  holdTiers: z.number().int().min(1).max(15).optional(),
+  deckTiers: z.number().int().min(1).max(12).optional(),
 });
+const ProfileBody = VesselBody.omit({ imo: true, name: true, vesselType: true }).extend({
+  name: z.string().min(1).optional(),
+  vesselType: VesselBody.shape.vesselType.optional(),
+});
+const VESSEL_COLS = `id, imo, name, call_sign AS "callSign", vessel_type AS "vesselType", loa_m::float AS "loaM", beam_m::float AS "beamM",
+  max_draft_m::float AS "maxDraftM", max_bay AS "maxBay", max_row AS "maxRow", hold_tiers AS "holdTiers", deck_tiers AS "deckTiers"`;
 
 const VisitBody = z.object({
   visitRef: z.string().min(1).max(30),
@@ -38,11 +50,36 @@ export class VesselsController {
     const b = parse(VesselBody, body);
     return this.db.tx(ctx, (tx) =>
       tx.one(
-        `INSERT INTO vessels (tenant_id, imo, name, call_sign, vessel_type, loa_m) VALUES (current_tenant(), $1,$2,$3,$4,$5)
-         RETURNING id, imo, name, call_sign AS "callSign", vessel_type AS "vesselType", loa_m AS "loaM"`,
-        [b.imo, b.name, b.callSign ?? null, b.vesselType, b.loaM ?? null],
+        `INSERT INTO vessels (tenant_id, imo, name, call_sign, vessel_type, loa_m, beam_m, max_draft_m, max_bay, max_row, hold_tiers, deck_tiers)
+         VALUES (current_tenant(), $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING ${VESSEL_COLS}`,
+        [b.imo, b.name, b.callSign ?? null, b.vesselType, b.loaM ?? null, b.beamM ?? null, b.maxDraftM ?? null,
+         b.maxBay ?? null, b.maxRow ?? null, b.holdTiers ?? null, b.deckTiers ?? null],
       ),
     );
+  }
+
+  @Get()
+  list(@Ctx() ctx: RequestContext) {
+    return this.db.tx(ctx, (tx) => tx.many(`SELECT ${VESSEL_COLS} FROM vessels ORDER BY name`));
+  }
+
+  /** Update particulars and the bay-plan profile (fields left out are kept). */
+  @Put(':imo')
+  @Roles(ROLES.planner)
+  update(@Ctx() ctx: RequestContext, @Param('imo') imo: string, @Body() body: unknown) {
+    const b = parse(ProfileBody, body);
+    return this.db.tx(ctx, async (tx) => {
+      await tx.must('SELECT id FROM vessels WHERE imo = $1', [imo], `Vessel IMO ${imo}`);
+      return tx.one(
+        `UPDATE vessels SET name = coalesce($2, name), call_sign = coalesce($3, call_sign), vessel_type = coalesce($4, vessel_type),
+                loa_m = coalesce($5, loa_m), beam_m = coalesce($6, beam_m), max_draft_m = coalesce($7, max_draft_m),
+                max_bay = coalesce($8, max_bay), max_row = coalesce($9, max_row), hold_tiers = coalesce($10, hold_tiers),
+                deck_tiers = coalesce($11, deck_tiers)
+          WHERE imo = $1 RETURNING ${VESSEL_COLS}`,
+        [imo, b.name ?? null, b.callSign ?? null, b.vesselType ?? null, b.loaM ?? null, b.beamM ?? null, b.maxDraftM ?? null,
+         b.maxBay ?? null, b.maxRow ?? null, b.holdTiers ?? null, b.deckTiers ?? null],
+      );
+    });
   }
 }
 
@@ -84,7 +121,7 @@ export class VisitsController {
       return tx.many(
         `SELECT v.id, v.visit_ref AS "visitRef", v.phase, s.imo, s.name AS "vesselName", s.vessel_type AS "vesselType",
                 p.code AS "lineOperator", v.voyage_in AS "voyageIn", v.voyage_out AS "voyageOut", v.berth,
-                v.eta, v.etd, v.ata, v.atd, v.created_at AS "createdAt",
+                v.eta, v.etb, v.etd, v.ata, v.atd, v.created_at AS "createdAt",
                 count(w.*) FILTER (WHERE w.status = 'PLANNED')::int AS "plannedMoves",
                 count(w.*) FILTER (WHERE w.status = 'COMPLETED')::int AS "completedMoves",
                 count(w.*) FILTER (WHERE w.status = 'COMPLETED' AND w.move_kind = 'DISCHARGE')::int AS "discharged",
@@ -106,7 +143,9 @@ export class VisitsController {
       return tx.must(
         `SELECT v.id, v.visit_ref AS "visitRef", v.phase, s.imo, s.name AS "vesselName", s.vessel_type AS "vesselType",
                 (SELECT p.code FROM partners p WHERE p.id = v.line_operator_id) AS "lineOperator", v.voyage_in AS "voyageIn",
-                v.voyage_out AS "voyageOut", v.berth, v.eta, v.etd, v.ata, v.atd,
+                v.voyage_out AS "voyageOut", v.berth, v.eta, v.etd, v.ata, v.atd, v.etb, v.quay_from_m::float AS "quayFromM",
+                v.side_to AS "sideTo", v.moves_per_hour::float AS "movesPerHour", s.loa_m::float AS "loaM",
+                (SELECT count(*)::int FROM vessel_stow st WHERE st.visit_id = v.id) AS "stowCells",
                 (SELECT count(*)::int FROM work_instructions w WHERE w.visit_id = v.id AND w.status = 'PLANNED') AS "plannedMoves",
                 (SELECT count(*)::int FROM work_instructions w WHERE w.visit_id = v.id AND w.status = 'COMPLETED') AS "completedMoves"
            FROM vessel_visits v JOIN vessels s ON s.id = v.vessel_id WHERE v.id = $1 AND v.facility_id = $2`,

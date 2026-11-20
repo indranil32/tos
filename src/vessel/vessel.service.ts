@@ -180,7 +180,7 @@ export class VesselService {
       [unit.id, alloc.blockId, alloc.position, at],
     );
     await tx.exec(
-      `UPDATE work_instructions SET status = 'COMPLETED', to_position = $3, from_position = 'VESSEL', che_id = $4, completed_at = $5
+      `UPDATE work_instructions SET status = 'COMPLETED', to_position = $3, from_position = coalesce(from_position, 'VESSEL'), che_id = $4, completed_at = $5
         WHERE unit_id = $1 AND visit_id = $2 AND move_kind = 'DISCHARGE' AND status IN ('PLANNED','DISPATCHED','IN_PROGRESS')`,
       [unit.id, visitId, alloc.position, body.cheId ?? null, at],
     );
@@ -253,6 +253,13 @@ export async function loadUnit(
   const holds = await tx.many<{ hold_type: string }>('SELECT hold_type FROM unit_holds WHERE unit_id = $1 AND released_at IS NULL', [unit.id]);
   if (holds.length) throw ApiError.conflict('on_hold', `${body.unitRef} has active holds: ${holds.map((h) => h.hold_type).join(', ')}`);
 
+  // Without an explicit cell, the move goes to the cell the planner stowed it in.
+  const plannedCell = await tx.one<{ planned_position: string | null }>(
+    `SELECT planned_position FROM work_instructions
+      WHERE unit_id = $1 AND visit_id = $2 AND move_kind = 'LOAD' AND status IN ('PLANNED','DISPATCHED','IN_PROGRESS')`,
+    [unit.id, visitId],
+  );
+  if (!body.stowPosition && plannedCell?.planned_position) body = { ...body, stowPosition: plannedCell.planned_position };
   const at = body.completedAt ?? new Date().toISOString();
   await tx.exec(
     `UPDATE units SET state = 'LOADED', stow_position = $2, yard_position = NULL, yard_block_id = NULL, time_out = $3 WHERE id = $1`,

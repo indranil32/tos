@@ -1,6 +1,6 @@
 {
   "name": "tos-platform",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Multipurpose Terminal Operating System: containers, break-bulk, RoRo and liquid bulk. Multi-tenant, SaaS or on-prem.",
   "private": true,
   "license": "UNLICENSED",

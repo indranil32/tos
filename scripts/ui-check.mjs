@@ -82,10 +82,34 @@ const unitOnJob = (await page.textContent('.job .mono.big')).trim();
 await page.click('.job button:has-text("Complete")');
 await page.waitForSelector('.console .muted, .job', { timeout: 10000 });
 console.log('completed housekeeping move for', unitOnJob);
-await page.click('table.grid tbody tr >> nth=0');
+await page.click('table.grid a:has-text("HK-NIGHT")');
 await page.waitForSelector('h1:has-text("HK-")');
 await page.waitForTimeout(1500); // live update from the stream
 await shot('20-work-queue-detail');
+// vessel planning: berth plan, bay plan with click-to-stow, crane split
+await page.click('nav a[href="/berth-plan"]');
+await page.waitForSelector('.berth-chart svg .bp-visit');
+await shot('21-berth-plan');
+await page.click('.bp-visit:has-text("GMR-PLAN")');
+await page.waitForSelector('h1:has-text("GMR-PLAN")');
+await page.click('.tabs button:has-text("Bay plan")');
+await page.waitForSelector('.bp-bay');
+await page.click('.card button.toggle >> nth=0'); // pick the first unstowed load
+await page.waitForSelector('.bp-cell.pick');
+await shot('22-bay-plan-picking');
+const before = await page.locator('.card button.toggle').count();
+await page.click('.bp-cell.pick >> nth=0');
+await page.waitForFunction((n) => document.querySelectorAll('.card button.toggle').length < n || document.querySelector('.error'), before, { timeout: 10000 });
+console.log('stowed by click:', before, '->', await page.locator('.card button.toggle').count(), (await page.locator('.error').count()) ? await page.textContent('.error') : '');
+await page.click('.bp-toolbar button:has-text("Crane")');
+await shot('23-bay-plan-by-crane');
+await page.click('.tabs button:has-text("Crane split")');
+await page.click('label.chip-check:has-text("QC01") input');
+await page.click('label.chip-check:has-text("QC02") input');
+await page.click('button.primary:has-text("Split")');
+await page.waitForSelector('p.ok');
+console.log('split:', (await page.textContent('p.ok')).trim());
+await shot('24-crane-split');
 console.log('live indicator:', (await page.textContent('.live-dot')).trim());
 console.log('console errors:', errors.length ? errors : 'none');
 await browser.close();

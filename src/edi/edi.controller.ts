@@ -6,9 +6,10 @@ import { DatabaseService, Tx } from '../platform/db/database.service';
 import { ApiError } from '../platform/errors';
 import { currentFacility, FacilityRow } from '../platform/facility';
 import { VgmService } from '../inventory/vgm.service';
+import { PlanningService } from '../vessel/planning.service';
 import { VesselService } from '../vessel/vessel.service';
 import { parseEdifact } from './edifact';
-import { buildCoarri, buildCodeco, mapCoprar, mapVermas, splitInterchange } from './messages';
+import { buildBaplie, buildCoarri, buildCodeco, mapBaplie, mapCoprar, mapVermas, splitInterchange } from './messages';
 
 /**
  * EDI gateway. Every inbound message is mapped onto the same service the REST API uses,
@@ -18,7 +19,12 @@ import { buildCoarri, buildCodeco, mapCoprar, mapVermas, splitInterchange } from
 @Controller('v1/edi')
 @FacilityScoped()
 export class EdiController {
-  constructor(private readonly db: DatabaseService, private readonly vessels: VesselService, private readonly vgm: VgmService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly vessels: VesselService,
+    private readonly vgm: VgmService,
+    private readonly planning: PlanningService,
+  ) {}
 
   @Post('inbound')
   @Roles(ROLES.edi)
@@ -115,6 +121,33 @@ export class EdiController {
     });
   }
 
+  /** Departure bay plan: remain-on-board and restowed cargo plus everything loaded here. */
+  @Get('outbound/baplie/:visitId')
+  @Roles(ROLES.edi, ROLES.planner)
+  @Header('Content-Type', 'application/edifact')
+  baplie(@Ctx() ctx: RequestContext, @Param('visitId', ParseUUIDPipe) visitId: string, @Query('nextPort') nextPort?: string) {
+    return this.db.tx(ctx, async (tx) => {
+      const f = await currentFacility(tx, ctx);
+      const v = await tx.must(
+        `SELECT v.id, coalesce(v.voyage_out, v.voyage_in, v.visit_ref) AS voyage, s.imo, s.name, p.code AS line
+           FROM vessel_visits v JOIN vessels s ON s.id = v.vessel_id LEFT JOIN partners p ON p.id = v.line_operator_id
+          WHERE v.id = $1 AND v.facility_id = $2`,
+        [visitId, f.id],
+        'Vessel visit',
+      );
+      if (nextPort && !/^[A-Z]{2}[A-Z2-9]{3}$/.test(nextPort)) throw ApiError.invalid('nextPort must be a UN/LOCODE');
+      const cells = await this.planning.departureCells(tx, visitId);
+      const ref = await this.nextRef(tx, f);
+      const text = buildBaplie(
+        { sender: f.smdg_code ?? f.code, recipient: v.line ?? 'UNKNOWN', ref, at: new Date() },
+        { voyage: v.voyage, imo: v.imo, vesselName: v.name, lineOperator: v.line ?? undefined, unlocode: f.unlocode, nextPort: nextPort ?? null },
+        cells,
+      );
+      await this.log(tx, f, 'OUT', 'BAPLIE', ref, v.line ?? undefined, text, 'GENERATED', null);
+      return text;
+    });
+  }
+
   @Get('outbound/codeco/:gateTransactionId')
   @Roles(ROLES.edi, ROLES.gate)
   @Header('Content-Type', 'application/edifact')
@@ -158,6 +191,19 @@ export class EdiController {
           return { ...item, move, pol: _pol, pod: _pod };
         });
         return this.vessels.applyLoadList(tx, ctx, f, visit.id, items);
+      }
+      case 'BAPLIE': {
+        const b = mapBaplie(segs);
+        const vesselCol = b.vesselIdType === 'CALL_SIGN' ? 's.call_sign' : 's.imo';
+        const visit = await tx.one<{ id: string }>(
+          `SELECT v.id FROM vessel_visits v JOIN vessels s ON s.id = v.vessel_id
+            WHERE v.facility_id = $1 AND (v.voyage_in = $2 OR v.voyage_out = $2 OR v.visit_ref = $2)
+              AND ($3::text IS NULL OR ${vesselCol} = $3) AND v.phase NOT IN ('DEPARTED','CANCELLED')
+            ORDER BY (v.voyage_in = $2) DESC LIMIT 1`,
+          [f.id, b.voyage, b.vesselIdType === 'OTHER' ? null : (b.vesselId ?? null)],
+        );
+        if (!visit) throw ApiError.notFound(`Open vessel visit for voyage ${b.voyage}`);
+        return this.planning.applyBaplie(tx, ctx, f, visit.id, b.cells);
       }
       case 'VERMAS': {
         const entries = mapVermas(segs);

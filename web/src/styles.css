@@ -188,3 +188,29 @@ details textarea { margin-top: 10px; }
 .live-dot::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #B5B5B5; }
 .live-dot.live::before { background: #2E9E5F; }
 .live-dot.connecting::before { background: #E0A01B; }
+
+/* Phase 1: vessel planning */
+.toggle { border: 1px solid var(--line); background: #fff; border-radius: 14px; padding: 3px 10px; font: inherit; font-size: 12.5px; cursor: pointer; }
+.toggle.active { background: #1F4E8C; border-color: #1F4E8C; color: #fff; }
+.flags.wrap { flex-wrap: wrap; }
+a.button { display: inline-block; border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; text-decoration: none; color: inherit; background: #fff; }
+.chip-check { display: inline-flex; align-items: center; gap: 6px; }
+table.grid.compact td, table.grid.compact th { padding: 6px 10px; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.bayplan .bp-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.bp-bays { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 10px; }
+.bp-bay header { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+.bp-grid { display: grid; gap: 2px; align-items: center; }
+.bp-axis { font-size: 10.5px; color: var(--muted); text-align: center; font-variant-numeric: tabular-nums; }
+.bp-cell { position: relative; height: 1.6em; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1; }
+.bp-cell.empty { border: 1px dashed #D3D9E1; background: #fff; }
+.bp-cell.pick { cursor: copy; border-color: #1F4E8C; background: #EEF4FF; padding: 0; }
+.bp-cell.pick:hover { background: #CFE0FF; }
+.bp-cell.rob { opacity: 0.75; }
+.bp-cell small { position: absolute; bottom: 0; right: 1px; font-size: 7.5px; }
+.bp-cell .bp-dg { position: absolute; top: -1px; left: 1px; font-size: 8px; font-style: normal; }
+.bp-cell .bp-rf { position: absolute; top: -1px; right: 1px; font-size: 8px; font-style: normal; }
+.bp-hatch { height: 3px; background: #4A5568; border-radius: 2px; margin: 2px 0; }
+.berth-chart svg { width: 100%; height: auto; display: block; }
+.bp-visit { cursor: pointer; }
+.bp-visit:hover rect:first-of-type { filter: brightness(0.95); }

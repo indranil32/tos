@@ -54,6 +54,9 @@ export class ProblemFilter implements ExceptionFilter {
       const mapped = mapPgError(err);
       status = mapped.status;
       body = { type: 'about:blank', title: mapped.code, detail: mapped.message };
+      // Unexpected database errors are bugs: log them server-side (the client only sees a generic message).
+      // eslint-disable-next-line no-console
+      if (status >= 500) console.error(`database error ${err.code}: ${(err as unknown as Error).message}`);
     } else {
       // eslint-disable-next-line no-console
       console.error(err);

@@ -9,6 +9,7 @@ import { edifactDateTime, el, EdifactError, Segment, writeEdifact } from './edif
 export const PROFILE = {
   coarri: { version: ['COARRI', 'D', '95B', 'UN', 'ITG13'], bgmDischarge: '98', bgmLoad: '46' },
   codeco: { version: ['CODECO', 'D', '95B', 'UN', 'ITG14'], bgmGateIn: '34', bgmGateOut: '36' },
+  baplie: { version: ['BAPLIE', 'D', '95B', 'UN', 'SMDG22'] },
 };
 
 export interface Interchange {
@@ -206,4 +207,124 @@ export function buildCodeco(
   if (gate.truckPlate) body.push(['TDT', '1', '', '3', '', '', '', '', [gate.truckPlate, '146']]);
   body.push(['CNT', ['16', '1']]);
   return envelope(h, PROFILE.codeco.version, body);
+}
+
+export interface BaplieCell {
+  cell: string;
+  unitRef?: string;
+  isoType?: string;
+  freightKind: 'FCL' | 'MTY';
+  weightKg?: number;
+  pol?: string;
+  pod?: string;
+  lineCode?: string;
+  dgClass?: string;
+  dgUnNumber?: string;
+  isReefer: boolean;
+}
+
+export interface BaplieResult {
+  voyage: string;
+  vesselId?: string;
+  vesselIdType: 'IMO' | 'CALL_SIGN' | 'OTHER';
+  vesselName?: string;
+  cells: BaplieCell[];
+}
+
+/**
+ * BAPLIE (bayplan/stowage plan, SMDG 2.x D.95B and the cell part of 3.x): one group per occupied cell,
+ * opened by LOC+147. Weight from MEA+WT (2.x) or MEA+AAE+VGM/AET (3.x); POL/POD from LOC+9/LOC+11.
+ */
+export function mapBaplie(segs: Segment[]): BaplieResult {
+  const tdt = segs.find((s) => s.tag === 'TDT');
+  const voyage = el(tdt, 2) ?? el(segs.find((s) => s.tag === 'RFF' && el(s, 1, 0) === 'VON'), 1, 1);
+  if (!voyage) throw new EdifactError('BAPLIE has no voyage number (TDT)');
+  const idCode = el(tdt, 8, 1);
+  const cells: BaplieCell[] = [];
+  let cur: BaplieCell | undefined;
+  let inCells = false;
+  for (const s of segs) {
+    if (s.tag === 'LOC' && el(s, 1) === '147') {
+      const raw = (el(s, 2) ?? '').trim();
+      if (!/^[0-9]{6,7}$/.test(raw)) throw new EdifactError(`BAPLIE cell "${raw}" is not bay-row-tier`);
+      cur = { cell: raw.padStart(7, '0'), freightKind: 'FCL', isReefer: false };
+      cells.push(cur);
+      inCells = true;
+      continue;
+    }
+    if (!inCells || !cur) continue;
+    switch (s.tag) {
+      case 'EQD':
+        if (el(s, 1) === 'CN') {
+          cur.unitRef = (el(s, 2) ?? '').toUpperCase() || undefined;
+          cur.isoType = el(s, 3) || undefined;
+          cur.freightKind = el(s, 6) === '4' ? 'MTY' : 'FCL';
+        }
+        break;
+      case 'MEA': {
+        const q = el(s, 1);
+        const what = el(s, 2);
+        if ((q === 'WT' || (q === 'AAE' && ['VGM', 'AET', 'G'].includes(what ?? ''))) && el(s, 3, 0) === 'KGM') {
+          const kg = Number(el(s, 3, 1));
+          if (!Number.isNaN(kg) && (cur.weightKg === undefined || what === 'VGM')) cur.weightKg = kg;
+        }
+        break;
+      }
+      case 'LOC':
+        if (el(s, 1) === '9' || el(s, 1) === '6') cur.pol = el(s, 2);
+        if (el(s, 1) === '11' || el(s, 1) === '12') cur.pod = el(s, 2);
+        break;
+      case 'NAD':
+        if (['CA', 'CF'].includes(el(s, 1) ?? '')) cur.lineCode = el(s, 2);
+        break;
+      case 'DGS':
+        if (el(s, 1) === 'IMD') {
+          cur.dgClass = el(s, 2);
+          cur.dgUnNumber = el(s, 3);
+        }
+        break;
+      case 'TMP':
+        cur.isReefer = true;
+        break;
+    }
+  }
+  if (!cells.length) throw new EdifactError('BAPLIE contains no cells (LOC+147)');
+  const seen = new Set<string>();
+  for (const c of cells) {
+    if (seen.has(c.cell)) throw new EdifactError(`BAPLIE lists cell ${c.cell} twice`);
+    seen.add(c.cell);
+  }
+  return {
+    voyage,
+    vesselId: el(tdt, 8, 0),
+    vesselIdType: idCode === '146' ? 'IMO' : idCode === '103' ? 'CALL_SIGN' : 'OTHER',
+    vesselName: el(tdt, 8, 3),
+    cells: cells.filter((c) => c.unitRef),
+  };
+}
+
+export function buildBaplie(
+  h: HeaderInfo,
+  visit: { voyage: string; imo: string; vesselName: string; lineOperator?: string; unlocode?: string | null; nextPort?: string | null },
+  cells: BaplieCell[],
+): string {
+  const dt = edifactDateTime(h.at);
+  const body: (string | string[] | undefined)[][] = [
+    ['BGM', '', h.ref, '9'],
+    ['DTM', ['137', dt.ccyymmddhhmm, '201']],
+    ['TDT', '20', visit.voyage, '', '', [visit.lineOperator ?? '', '172', '20'], '', '', [visit.imo, '146', '', visit.vesselName]],
+  ];
+  if (visit.unlocode) body.push(['LOC', '5', [visit.unlocode, '139', '6']]);
+  if (visit.nextPort) body.push(['LOC', '61', [visit.nextPort, '139', '6']]);
+  for (const c of [...cells].sort((a, b) => a.cell.localeCompare(b.cell))) {
+    body.push(['LOC', '147', [c.cell, '', '5']]);
+    if (c.weightKg) body.push(['MEA', 'WT', '', ['KGM', String(Math.round(c.weightKg))]]);
+    if (c.isReefer) body.push(['TMP', '2']);
+    if (c.pol) body.push(['LOC', '9', [c.pol, '139', '6']]);
+    if (c.pod) body.push(['LOC', '11', [c.pod, '139', '6']]);
+    body.push(['EQD', 'CN', c.unitRef ?? '', c.isoType ?? '', '', '', c.freightKind === 'MTY' ? '4' : '5']);
+    if (c.lineCode) body.push(['NAD', 'CA', [c.lineCode, '172', '20']]);
+    if (c.dgClass) body.push(['DGS', 'IMD', c.dgClass, c.dgUnNumber ?? '']);
+  }
+  return envelope(h, PROFILE.baplie.version, body);
 }

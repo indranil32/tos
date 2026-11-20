@@ -133,6 +133,17 @@ export const STATUS_DOMAINS = {
       CANCELLED: s('Cancelled', 'closed', 'Move cancelled (e.g. at departure).'),
     },
   },
+  stowState: {
+    kind: 'status', label: 'Cell on the bay plan', where: 'Vessel visit: bay plan',
+    values: {
+      DISCHARGE: s('To discharge', 'planned', 'For this port; comes off the vessel.'),
+      LOAD: s('To load', 'planned', 'Planned into this cell; goes on the vessel here.'),
+      RESTOW: s('Restow', 'attention', 'Stays on board but must come off and go back on to reach cargo for this port.'),
+      DISCHARGED: s('Discharged', 'done', 'Taken off at this port.'),
+      LOADED: s('Loaded', 'done', 'Loaded at this port.'),
+      ROB: s('On board', 'closed', 'Remains on board; no move here.'),
+    },
+  },
   equipmentStatus: {
     kind: 'status', label: 'Equipment status', where: 'Equipment, work queues, machine console',
     values: {

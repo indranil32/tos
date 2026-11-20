@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useSession } from '../App';
 import { can } from '../auth';
+import { BayPlanPanel, CraneSplitPanel } from '../components/VesselPlanning';
 import { CategoryChip, StatusBadge, StatusLegend } from '../components/Badges';
 import { DataGrid, formatDate, GridColumn } from '../grid/DataGrid';
 import { category, date, enumCol, num, status, text } from '../grid/columns';
@@ -102,18 +103,25 @@ export function VisitDetail() {
   const act = useAction();
   const [unitRef, setUnitRef] = useState('');
   const [target, setTarget] = useState('');
+  const [tab, setTab] = useState<'moves' | 'bay' | 'cranes'>('moves');
   const v = visit.data;
   const refresh = () => { visit.reload(); moves.reload(); };
   const plannedDischarge = useMemo(() => (moves.data ?? []).filter((m) => m.moveKind === 'DISCHARGE' && m.status === 'PLANNED'), [moves.data]);
   const plannedLoad = useMemo(() => (moves.data ?? []).filter((m) => m.moveKind === 'LOAD' && m.status === 'PLANNED'), [moves.data]);
   const working = v && ['ARRIVED', 'WORKING'].includes(v.phase);
-  const download = async (kind: 'DISCHARGE' | 'LOAD') => {
-    const text = await act.run(() => api.get<string>(`/v1/edi/outbound/coarri/${id}?kind=${kind}`, { text: true }));
-    if (!text) return;
+  const save = (text: string, name: string) => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([text], { type: 'application/edifact' }));
-    a.download = `COARRI-${v?.visitRef}-${kind}.edi`;
+    a.download = name;
     a.click();
+  };
+  const download = async (kind: 'DISCHARGE' | 'LOAD') => {
+    const text = await act.run(() => api.get<string>(`/v1/edi/outbound/coarri/${id}?kind=${kind}`, { text: true }));
+    if (text) save(text, `COARRI-${v?.visitRef}-${kind}.edi`);
+  };
+  const baplie = async () => {
+    const text = await act.run(() => api.get<string>(`/v1/edi/outbound/baplie/${id}`, { text: true }));
+    if (text) save(text, `BAPLIE-${v?.visitRef}.edi`);
   };
   if (!v) return <p className="muted">{visit.error ?? 'Loading…'}</p>;
   return (
@@ -127,8 +135,9 @@ export function VisitDetail() {
         <div><dt>IMO</dt><dd>{v.imo}</dd></div>
         <div><dt>Line</dt><dd>{v.lineOperator ?? '–'}</dd></div>
         <div><dt>Voyage</dt><dd>{v.voyageIn ?? '–'} / {v.voyageOut ?? '–'}</dd></div>
-        <div><dt>Berth</dt><dd>{v.berth ?? '–'}</dd></div>
+        <div><dt>Berth</dt><dd>{v.berth ?? '–'}{v.quayFromM !== null && v.quayFromM !== undefined && v.loaM ? ` · ${v.quayFromM}–${v.quayFromM + v.loaM} m` : ''}</dd></div>
         <div><dt>ETA</dt><dd>{formatDate(v.eta)}</dd></div>
+        <div><dt>ETB / ETD</dt><dd>{formatDate(v.etb)} → {formatDate(v.etd)}</dd></div>
         <div><dt>ATA</dt><dd>{formatDate(v.ata)}</dd></div>
         <div><dt>ATD</dt><dd>{formatDate(v.atd)}</dd></div>
         <div><dt>Moves</dt><dd>{v.completedMoves} done / {v.plannedMoves} planned</dd></div>
@@ -142,6 +151,8 @@ export function VisitDetail() {
         )}
         <button onClick={() => download('DISCHARGE')}>COARRI discharge</button>
         <button onClick={() => download('LOAD')}>COARRI load</button>
+        <button onClick={baplie} title="Bay plan after this port: cargo remaining on board and units loaded here">BAPLIE out</button>
+        <Link className="button" to="/berth-plan">Berth plan</Link>
         {act.error && <span className="error">{act.error}</span>}
       </div>
       {working && can(roles, 'tos:operator') && (
@@ -160,9 +171,18 @@ export function VisitDetail() {
           }}>Confirm</button>
         </div>
       )}
-      <DataGrid id="visit-moves" title="Moves" rows={moves.data} loading={moves.loading} error={moves.error} columns={moveColumns}
+      <div className="tabs" role="tablist">
+        {(['moves', 'bay', 'cranes'] as const).map((k) => (
+          <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>
+            {{ moves: 'Moves', bay: `Bay plan${v.stowCells ? ` (${v.stowCells})` : ''}`, cranes: 'Crane split' }[k]}
+          </button>
+        ))}
+      </div>
+      {tab === 'bay' && <BayPlanPanel visitId={id!} />}
+      {tab === 'cranes' && <CraneSplitPanel visitId={id!} />}
+      {tab === 'moves' && <DataGrid id="visit-moves" title="Moves" rows={moves.data} loading={moves.loading} error={moves.error} columns={moveColumns}
         rowKey={(r) => r.id} quickFilters={['kind', 'status']} defaultSort={[{ columnId: 'status', dir: 'asc' }, { columnId: 'unit', dir: 'asc' }]}
-        rowAccent={(r) => statusOf('moveStatus', r.status)?.tone.solid} />
+        rowAccent={(r) => statusOf('moveStatus', r.status)?.tone.solid} />}
       <LoadListUpload visitId={id!} onDone={refresh} />
       <p className="muted small">Cargo kinds on this visit: {[...new Set((moves.data ?? []).map((m) => m.cargoKind))].map((k) => <CategoryChip key={k} domain="cargoKind" value={k} />)}</p>
     </>

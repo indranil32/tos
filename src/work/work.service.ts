@@ -151,8 +151,9 @@ export class WorkService {
       });
       position = r.position;
     } else if (wi.moveKind === 'LOAD' && wi.visitId) {
-      await this.vessel.load(tx, ctx, f, wi.visitId, { unitRef: wi.unitRef, stowPosition: body.stowPosition, cheId: eq.code });
-      position = body.stowPosition ?? 'VESSEL';
+      const stow = body.stowPosition ?? wi.plannedPosition ?? undefined;
+      await this.vessel.load(tx, ctx, f, wi.visitId, { unitRef: wi.unitRef, stowPosition: stow, cheId: eq.code });
+      position = stow ?? 'VESSEL';
     } else {
       throw ApiError.conflict('unsupported_move', `${wi.moveKind} moves are confirmed through their own module`);
     }

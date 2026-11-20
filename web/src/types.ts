@@ -2,6 +2,7 @@ export interface Visit {
   id: string; visitRef: string; phase: string; imo: string; vesselName: string; vesselType?: string; lineOperator: string | null;
   voyageIn: string | null; voyageOut: string | null; berth: string | null; eta: string | null; etd: string | null;
   ata: string | null; atd: string | null; plannedMoves: number; completedMoves: number; discharged?: number; loaded?: number;
+  etb?: string | null; quayFromM?: number | null; loaM?: number | null; sideTo?: string | null; movesPerHour?: number | null; stowCells?: number;
 }
 
 export interface Unit {
@@ -124,4 +125,30 @@ export interface TerminalMap {
   railTracks: { id: string; code: string; lengthM: number; maxWagons: number | null; map: MapBox | null }[];
   gateLanes: { id: string; code: string; direction: string; laneKind: string; hasOcr: boolean; status: string; map: MapBox | null }[];
   links: { id: string; fromFacility: string; toFacility: string; toKinds: string[]; mode: string; transitHours: number; bonded: boolean }[];
+}
+
+export interface BayCell {
+  cell: string; bay: number; row: number; tier: number; deck: boolean;
+  unitRef: string | null; isoType: string | null; weightKg: number | null; pol: string | null; pod: string | null;
+  line: string | null; dgClass: string | null; isReefer: boolean; state: string; crane: string | null;
+}
+
+export interface BayPlan {
+  visitRef: string;
+  vesselName: string;
+  profile: { maxBay: number; maxRow: number; holdTiers: number; deckTiers: number };
+  counts: Record<string, number>;
+  cells: BayCell[];
+  unplannedLoads: { unitRef: string; isoType: string | null; pod: string | null; weightKg: number | null }[];
+}
+
+export interface CraneSplitResult {
+  visitRef: string; movesPerHour: number; totalMoves: number; vesselHours: number; withoutCell: string[];
+  cranes: { crane: string; craneStatus: string; queue: string; bayFrom: number | null; bayTo: number | null; moves: number; restows: number; hours: number }[];
+}
+
+export interface BerthPlanVisit {
+  id: string; visitRef: string; phase: string; vesselName: string; vesselType: string; loaM: number | null; lineOperator: string | null;
+  berth: string | null; quayFromM: number | null; eta: string | null; etb: string | null; etd: string | null; ata: string | null; atd: string | null;
+  sideTo: string | null; openMoves: number; doneMoves: number;
 }

@@ -13,6 +13,7 @@ import { InvoiceDetail, Invoices } from './pages/Invoices';
 import { UnitDetail, Units } from './pages/Units';
 import { VisitDetail, Visits } from './pages/Visits';
 import { Terminal } from './pages/Terminal';
+import { BerthPlanPage } from './pages/BerthPlan';
 import { WorkQueueDetail, WorkQueues } from './pages/Work';
 import { YardView } from './pages/Yard';
 import { useLiveState } from './live';
@@ -109,6 +110,7 @@ const NAV = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/visits', label: 'Vessel visits' },
   { to: '/units', label: 'Units' },
+  { to: '/berth-plan', label: 'Berth plan' },
   { to: '/yard', label: 'Yard' },
   { to: '/work', label: 'Work queues' },
   { to: '/equipment', label: 'Equipment' },
@@ -151,6 +153,7 @@ function Shell() {
               <Route path="/units" element={<Units />} />
               <Route path="/units/:id" element={<UnitDetail />} />
               <Route path="/yard" element={<YardView />} />
+              <Route path="/berth-plan" element={<BerthPlanPage />} />
               <Route path="/work" element={<WorkQueues />} />
               <Route path="/work/:code" element={<WorkQueueDetail />} />
               <Route path="/equipment" element={<EquipmentPage />} />

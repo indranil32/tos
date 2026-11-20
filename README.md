@@ -2,7 +2,7 @@
 
 A Terminal Operating System for small and medium **multipurpose** terminals: containers, break-bulk/general cargo, RoRo and liquid bulk. One codebase runs as **multi-tenant SaaS** or **on-prem**, with billing built in, an API for every standard EDI message, and federated identity (OIDC, OAuth 2.0, SAML via the broker, SSO).
 
-> Status: v0.4, Phase 0 foundations: terminal model, equipment, work queues with dispatch, and live updates. v0.3: web screens. v0.2: A full vessel call runs end to end: discharge to invoice, plus export gate-in, SOLAS VGM, load and departure. Transshipment works, and it deploys to Azure through GitHub Actions.
+> Status: v0.5, Phase 1 vessel planning: berth plan, BAPLIE in/out with restow detection, load stow planning and crane split into sequenced crane queues. v0.4, Phase 0 foundations: terminal model, equipment, work queues with dispatch, and live updates. v0.3: web screens. v0.2: A full vessel call runs end to end: discharge to invoice, plus export gate-in, SOLAS VGM, load and departure. Transshipment works, and it deploys to Azure through GitHub Actions.
 
 ## What works today
 
@@ -17,11 +17,12 @@ A Terminal Operating System for small and medium **multipurpose** terminals: con
 - **Events:** a transactional outbox with an event feed at `GET /v1/events` and a live stream at `GET /v1/stream` (Server-Sent Events, tenant and facility scoped, replay with `Last-Event-ID`).
 - **Terminal model:** facility kinds (seaport, dry port, container depot, CFS) and corridors between facilities; berths on quay metres; yard areas (container stacks with sizes, stack weight, reefer plugs and DG classes, laydown, RoRo lanes, tanks, warehouses); rail tracks and gate lanes. `GET /v1/terminal` returns the whole layout.
 - **Equipment:** machines of every kind (QC, MHC, RTG, RMG, reach stacker, straddle, truck, forklift ...), pools, status log, shifts and gangs. A breakdown hands the machine's jobs back to their queues.
+- **Vessel planning:** vessel particulars and bay profile; a berth plan on quay metres with clash, length and draft checks; arrival BAPLIE (SMDG 2.x) builds the discharge list for this port, flags restows (cargo above this port's units and deck cargo over hold discharges) and keeps the rest as remain-on-board; load units are stowed cell by cell with 20'/40' bay and occupancy checks; the crane split gives each crane a contiguous bay range, balanced by workload, and builds its work queue in hatch order (discharge deck then hold, load hold then deck); the departure BAPLIE lists what stays on board plus what was loaded.
 - **Work queues and dispatch:** moves are planned into queues per point of work (crane, block, rail track, housekeeping) and dispatched to a dedicated machine or a pool, most urgent queue first. Machines ask for the next job, start, complete or hand it back; vessel moves complete through the vessel module so COARRI, billing and VGM rules still apply. Optimistic versions stop stale confirmations.
 
 ## Web app
 
-React screens served by the API at `/`: dashboard, terminal layout, equipment, work queues with a machine console, vessel visits (arrive, discharge, load, depart, load-list CSV, COARRI download), units (holds, VGM), yard view (colour by category, line, dwell or special cargo), gate, invoices and uninvoiced charges, EDI messages (upload, raw view) and the event feed.
+React screens served by the API at `/`: dashboard, berth plan, bay plan with click-to-stow, crane split, terminal layout, equipment, work queues with a machine console, vessel visits (arrive, discharge, load, depart, load-list CSV, COARRI download), units (holds, VGM), yard view (colour by category, line, dwell or special cargo), gate, invoices and uninvoiced charges, EDI messages (upload, raw view) and the event feed.
 
 Every list uses one data grid with:
 - **Simple filters:** quick search and one-click status/category chips with counts.

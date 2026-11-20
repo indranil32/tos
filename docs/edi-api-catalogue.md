@@ -9,7 +9,7 @@ Status: ✅ implemented · 🟡 API/event implemented, EDI mapper planned · ⬜
 | COPRAR | Load / discharge order | in | `POST /visits/{id}/load-lists` | `loadlist.updated` | ✅ |
 | COARRI | Load / discharge report | out | `GET /visits/{id}/moves`, `POST /visits/{id}/loads` | `unit.discharged`, `unit.loaded` | ✅ (discharge and load, with stow cell `LOC+147`) |
 | CODECO | Gate in / out report | out | `POST /gate/transactions` | `unit.gated-in`, `unit.gated-out` | ✅ |
-| BAPLIE | Bay plan | in/out | `PUT /visits/{id}/bayplan` | `bayplan.received` | ⬜ |
+| BAPLIE | Bay plan | in/out | `POST /edi/inbound` (arrival, matched on voyage); `GET /edi/outbound/baplie/{visitId}` (departure); `GET /visits/{id}/bay-plan` | `bayplan.received`, `stowplan.updated` | ✅ |
 | MOVINS | Stowage instructions | in | `PUT /visits/{id}/stowage` | `stowage.received` | ⬜ |
 | COPARN | Booking, pre-advice, release | in | `POST /bookings` | `booking.created` | ⬜ |
 | COREOR | Release order | in | `POST /releases` | `release.granted` | ⬜ |

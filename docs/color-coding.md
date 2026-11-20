@@ -66,6 +66,19 @@ Shown on: Visit moves, work queues, machine console.
 | `COMPLETED` | ✓ Completed | Done | Move confirmed. |
 | `CANCELLED` | – Cancelled | Closed | Move cancelled (e.g. at departure). |
 
+### Cell on the bay plan
+
+Shown on: Vessel visit: bay plan.
+
+| Value | Label | Tone | Meaning |
+|---|---|---|---|
+| `DISCHARGE` | ○ To discharge | Planned | For this port; comes off the vessel. |
+| `LOAD` | ○ To load | Planned | Planned into this cell; goes on the vessel here. |
+| `RESTOW` | ! Restow | Needs attention | Stays on board but must come off and go back on to reach cargo for this port. |
+| `DISCHARGED` | ✓ Discharged | Done | Taken off at this port. |
+| `LOADED` | ✓ Loaded | Done | Loaded at this port. |
+| `ROB` | – On board | Closed | Remains on board; no move here. |
+
 ### Equipment status
 
 Shown on: Equipment, work queues, machine console.

@@ -94,8 +94,103 @@ async function setupOperations() {
   console.log('Terminal layout, equipment and queues ready.');
 }
 
+// Vessel planning showcase (idempotent): particulars, berth plan, an arrival BAPLIE, a stow plan and a crane split.
+async function setupVesselPlanning() {
+  const ok = [200, 201, 409, 422];
+  const particulars = {
+    '9321483': { loaM: 300, beamM: 48, maxDraftM: 14.5, maxBay: 39, maxRow: 16, holdTiers: 9, deckTiers: 6 },
+    '9454412': { loaM: 280, beamM: 40, maxDraftM: 13.5, maxBay: 35, maxRow: 14, holdTiers: 8, deckTiers: 5 },
+    '9702210': { loaM: 170, beamM: 32, maxDraftM: 9 },
+    '9811000': { loaM: 260, beamM: 37, maxDraftM: 13, maxBay: 31, maxRow: 12, holdTiers: 7, deckTiers: 5 },
+  };
+  for (const [imo, p] of Object.entries(particulars)) await call('PUT', `/v1/vessels/${imo}`, p, ok);
+  await call('POST', '/v1/vessels', { imo: '9811001', name: 'GULF MERIDIAN', vesselType: 'CONTAINER', loaM: 230, beamM: 32, maxDraftM: 12.5, maxBay: 23, maxRow: 8, holdTiers: 4, deckTiers: 3 }, ok);
+
+  const hour = 3_600_000;
+  const at = (h) => new Date(Math.round((Date.now() + h * hour) / hour) * hour).toISOString();
+  let visit = (await call('GET', '/v1/visits')).find((v) => v.visitRef === 'GMR-PLAN');
+  if (!visit) {
+    visit = await call('POST', '/v1/visits', { visitRef: 'GMR-PLAN', imo: '9811001', lineOperator: 'MSC', voyageIn: 'GM01W', voyageOut: 'GM01E', eta: at(20) });
+  }
+  // Berth plan: the showcase on berth 1, other open visits where they fit.
+  await call('PUT', `/v1/visits/${visit.id}/berth-plan`, { berth: 'B1', quayFromM: 20, eta: at(20), etb: at(22), etd: at(58) }, ok);
+  const plan = await call('GET', '/v1/berth-plan');
+  const starts = { B1: 20, B2: 350, RR1: 655 };
+  for (const v of plan.visits.filter((x) => x.quayFromM === null && x.loaM && x.phase !== 'DEPARTED')) {
+    const start = v.ata ? (Date.parse(v.ata) - Date.now()) / hour : v.eta ? (Date.parse(v.eta) - Date.now()) / hour : 72;
+    // Try each berth, then a later window; the API refuses berths that are too short or too shallow, and clashes.
+    placing: for (const shift of [0, 60, 120]) {
+      for (const berth of v.vesselType === 'RORO' ? ['RR1', 'B2', 'B1'] : ['B2', 'B1']) {
+        const etd = v.ata ? Math.max(start + 40, 10) : start + 40 + shift; // a vessel alongside leaves in the future
+        const r = await call('PUT', `/v1/visits/${v.id}/berth-plan`, { berth, quayFromM: starts[berth], etb: at(start + 1 + (v.ata ? 0 : shift)), etd: at(etd) }, ok);
+        if (!r?.title) break placing;
+      }
+    }
+  }
+
+  const bp = await call('GET', `/v1/visits/${visit.id}/bay-plan`);
+  if (bp.cells.length === 0) {
+    // Arrival stowage: deterministic pseudo-random fill of 6 hatches.
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const cells = [];
+    let serial = 810000;
+    for (let h = 0; h < 6; h++) {
+      const forty = h % 2 === 0;
+      const bays = forty ? [4 * h + 2] : [4 * h + 1, 4 * h + 3];
+      for (const bay of bays) for (const row of [1, 2, 3, 4, 5, 6, 7, 8]) {
+        // Each stack: cargo for later ports at the bottom, this port's cargo on top (as a line would stow it).
+        // Hold discharges only in the two aft hatches, so a few deck stacks there become hatch-cover restows.
+        for (const [tiers, deck] of [[[2, 4, 6, 8], false], [[82, 84, 86], true]]) {
+          const height = Math.floor(rnd() * (tiers.length + 1));
+          const forPort = deck ? Math.floor(rnd() * (height + 1)) : h >= 4 ? Math.floor(rnd() * 2) : 0;
+          for (let i = 0; i < height; i++) {
+            const tier = tiers[i];
+            const pod = i >= height - forPort ? 'AEKHL' : rnd() < 0.5 ? 'SGSIN' : 'INNSA';
+            cells.push({ cell: `${String(bay).padStart(3, '0')}${String(row).padStart(2, '0')}${String(tier).padStart(2, '0')}`,
+              unit: iso6346(forty ? 'MSDU' : 'MSKU', serial++), iso: forty ? '45G1' : '22G1', pod,
+              kg: Math.round(9000 + rnd() * 21000), dg: rnd() < 0.04, reefer: deck && rnd() < 0.08 });
+          }
+        }
+      }
+    }
+    const body = [
+      'UNH+1+BAPLIE:D:95B:UN:SMDG22', 'BGM++GMR001+9', 'TDT+20+GM01W+++MSC:172:20+++9811001:146::GULF MERIDIAN', 'LOC+5+CNSHA:139:6',
+      ...cells.flatMap((c) => [`LOC+147+${c.cell}::5`, `MEA+WT++KGM:${c.kg}`, ...(c.reefer ? ['TMP+2+-18:CEL'] : []), 'LOC+9+CNSHA:139:6',
+        `LOC+11+${c.pod}:139:6`, `EQD+CN+${c.unit}+${c.iso}+++5`, 'NAD+CA+MSC:172:20', ...(c.dg ? ['DGS+IMD+3+1263'] : [])]),
+    ];
+    await call('POST', '/v1/edi/inbound', ['UNB+UNOA:2+MSC+KHLMPT+261119:0600+GMR001', ...body, `UNT+${body.length + 1}+1`, 'UNZ+1+GMR001'].map((s) => s + "'").join(''));
+
+    // Exports for this call, stowed into cells freed by the discharge and empty slots.
+    const after = await call('GET', `/v1/visits/${visit.id}/bay-plan`);
+    const used = new Set(after.cells.filter((c) => c.state !== 'DISCHARGE').map((c) => `${c.bay}-${c.row}-${c.tier}`));
+    const exportsGm = Array.from({ length: 18 }, (_, i) => ({ move: 'LOAD', unitRef: iso6346('GMXU', 820000 + i), isoType: '22G1', grossWeightKg: 12000 + i * 600, lineOperator: 'MSC', pol: 'AEKHL', pod: i % 3 ? 'SGSIN' : 'INNSA' }));
+    await call('POST', `/v1/visits/${visit.id}/load-lists`, { items: exportsGm });
+    const free = [];
+    for (const bay of [3, 7, 11, 15, 19, 23]) for (const row of [1, 2, 3, 4, 5, 6, 7, 8]) for (const tier of [82, 84]) {
+      const k = (b) => `${b}-${row}-${tier}`;
+      const below = tier === 82 || used.has(k(bay)) || free.includes(`${bay}-${row}-${tier - 2}`);
+      const forty = [bay - 1, bay + 1].some((b) => used.has(k(b)));
+      if (!used.has(k(bay)) && !forty && below) free.push(`${bay}-${row}-${tier}`);
+    }
+    const assignments = exportsGm.slice(0, 14).map((e, i) => {
+      const [bay, row, tier] = free[i * 3 % free.length].split('-').map(Number);
+      return { unitRef: e.unitRef, cell: `${String(bay).padStart(3, '0')}${String(row).padStart(2, '0')}${String(tier).padStart(2, '0')}` };
+    });
+    const unique = [...new Map(assignments.map((a) => [a.cell, a])).values()];
+    await call('PUT', `/v1/visits/${visit.id}/stow-plan`, { assignments: unique }, ok);
+    // Leave four loads unstowed so the planner has something to place; split the rest only when all have cells.
+    console.log(`Vessel planning showcase: ${cells.length} cells on board, ${unique.length} loads stowed.`);
+  }
+  const split = await call('GET', `/v1/visits/${visit.id}/crane-split`);
+  if (!split.queues.length) {
+    const r = await call('POST', `/v1/visits/${visit.id}/crane-split`, { cranes: ['QC01', 'QC02'], movesPerHour: 28 }, ok);
+    if (r?.title) console.log(`Crane split not run yet: ${r.detail}`);
+  }
+}
+
 const visits0 = await call('GET', '/v1/visits');
-if (visits0.length > 3 && !process.env.FORCE) await setupOperations();
+if (visits0.length > 3 && !process.env.FORCE) { await setupOperations(); await setupVesselPlanning(); }
 
 const visits = await call('GET', '/v1/visits');
 if (visits.length > 3 && !process.env.FORCE) { console.log(`Demo data already present (${visits.length} visits); set FORCE=1 to add more.`); process.exit(0); }
@@ -178,3 +273,4 @@ await call('POST', '/v1/invoices', { customer: 'MSC' }, [201, 409]);
 console.log(`Demo data loaded: visits MSC-${tag}, HOE-${tag}, HAP-${tag}`);
 
 await setupOperations();
+await setupVesselPlanning();
