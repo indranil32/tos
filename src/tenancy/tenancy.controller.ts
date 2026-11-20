@@ -56,7 +56,8 @@ const YardBody = z.object({ facilityCode: code, code, name: z.string().min(1) })
 const BlockBody = z.object({
   facilityCode: code,
   yardCode: code,
-  code,
+  // No hyphen: slots are written <block>-<bay>-<row>-<tier>.
+  code: z.string().trim().min(1).max(20).regex(/^[A-Za-z0-9._]+$/, 'letters, digits, . and _ only (no hyphen)'),
   blockType: z.enum(['CONTAINER_STACK', 'LAYDOWN', 'RORO_LANE', 'TANK', 'WAREHOUSE']),
   bays: z.number().int().positive().default(1),
   rows: z.number().int().positive().default(1),

@@ -10,6 +10,7 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message));
+page.on('response', async (r) => { if (r.status() >= 400 && r.url().includes('/v1/')) errors.push(`${r.request().method()} ${new URL(r.url()).pathname} -> ${r.status()}: ${(await r.text().catch(() => '')).slice(0, 160)}`); });
 const shot = async (name) => { await page.waitForTimeout(700); await page.screenshot({ path: `${OUT}/${name}.png`, fullPage: false }); };
 await page.goto(BASE + '/');
 await page.waitForURL('**/login');

@@ -130,7 +130,7 @@ export class PlanningService {
     const visit = await this.vessels.visit(tx, f, visitId, true);
     if (['DEPARTED', 'CANCELLED'].includes(visit.phase)) throw ApiError.conflict('visit_closed', `Visit is ${visit.phase}`);
     const started = await tx.one(
-      `SELECT 1 FROM work_instructions WHERE visit_id = $1 AND move_kind = 'DISCHARGE' AND status IN ('DISPATCHED','IN_PROGRESS','COMPLETED') LIMIT 1`,
+      `SELECT 1 FROM work_instructions WHERE visit_id = $1 AND move_kind IN ('DISCHARGE','RESTOW') AND status IN ('DISPATCHED','IN_PROGRESS','COMPLETED') LIMIT 1`,
       [visitId],
     );
     if (started) throw ApiError.conflict('discharge_started', 'Discharge has started; the arrival bay plan can no longer be replaced');
@@ -174,13 +174,21 @@ export class PlanningService {
     await tx.exec('DELETE FROM vessel_stow WHERE visit_id = $1', [visitId]);
     for (const { c, cell } of parsed) {
       const disposition = c.pod === f.unlocode ? 'DISCHARGE' : restows.has(cell!.cell) ? 'RESTOW' : 'ROB';
-      await tx.exec(
+      const stow = await tx.one<{ id: string }>(
         `INSERT INTO vessel_stow (tenant_id, visit_id, cell, unit_ref, iso_type, freight_kind, weight_kg, pol, pod, line_code,
                                   dg_class, dg_un_number, is_reefer, disposition)
-         VALUES (current_tenant(), $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+         VALUES (current_tenant(), $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
         [visitId, cell!.cell, c.unitRef, c.isoType ?? null, c.freightKind, c.weightKg ?? null, c.pol ?? null, c.pod ?? null,
          c.lineCode ?? null, c.dgClass ?? null, c.dgUnNumber ?? null, c.isReefer, disposition],
       );
+      if (disposition === 'RESTOW') {
+        // Off and back on to the same cell; the crane does it in one job (counted as two moves).
+        await tx.exec(
+          `INSERT INTO work_instructions (tenant_id, facility_id, stow_id, visit_id, move_kind, from_position, planned_position)
+           VALUES (current_tenant(), $1, $2, $3, 'RESTOW', $4, $4)`,
+          [f.id, stow!.id, visitId, cell!.cell],
+        );
+      }
       if (disposition === 'DISCHARGE') {
         await tx.exec(
           `UPDATE work_instructions w SET from_position = $3 FROM units u
@@ -261,11 +269,12 @@ export class PlanningService {
     );
     const stow = await tx.many(
       `SELECT st.cell, st.unit_ref, st.iso_type, st.weight_kg, st.pol, st.pod, st.line_code, st.dg_class, st.is_reefer, st.disposition,
-              w.status AS wi_status, q_eq.code AS crane
+              coalesce(w.status, rw.status) AS wi_status, q_eq.code AS crane
          FROM vessel_stow st
          LEFT JOIN units u ON u.unit_ref = st.unit_ref AND u.facility_id = $2 AND (u.visit_in_id = st.visit_id)
          LEFT JOIN work_instructions w ON w.unit_id = u.id AND w.visit_id = st.visit_id AND w.move_kind = 'DISCHARGE' AND w.status <> 'CANCELLED'
-         LEFT JOIN work_queues q ON q.id = w.work_queue_id LEFT JOIN equipment q_eq ON q_eq.id = q.equipment_id
+         LEFT JOIN work_instructions rw ON rw.stow_id = st.id AND rw.status <> 'CANCELLED'
+         LEFT JOIN work_queues q ON q.id = coalesce(w.work_queue_id, rw.work_queue_id) LEFT JOIN equipment q_eq ON q_eq.id = q.equipment_id
         WHERE st.visit_id = $1`,
       [visitId, f.id],
     );
@@ -280,7 +289,8 @@ export class PlanningService {
     const cells: BayPlanCell[] = [];
     for (const s of stow) {
       const c = parseCell(s.cell)!;
-      const state = s.disposition === 'DISCHARGE' ? (s.wi_status === 'COMPLETED' ? 'DISCHARGED' : 'DISCHARGE') : s.disposition;
+      const state = s.disposition === 'DISCHARGE' ? (s.wi_status === 'COMPLETED' ? 'DISCHARGED' : 'DISCHARGE')
+        : s.disposition === 'RESTOW' && s.wi_status === 'COMPLETED' ? 'RESTOWED' : s.disposition;
       cells.push({
         cell: c.cell, bay: c.bay, row: c.row, tier: c.tier, deck: c.deck, unitRef: s.unit_ref, isoType: s.iso_type,
         weightKg: s.weight_kg === null ? null : Number(s.weight_kg), pol: s.pol, pod: s.pod, line: s.line_code, dgClass: s.dg_class,
@@ -327,18 +337,16 @@ export class PlanningService {
       cranes.push({ code, ...e });
     }
 
-    const wis = await tx.many<{ id: string; move_kind: 'DISCHARGE' | 'LOAD'; cell: string | null; unit_ref: string }>(
-      `SELECT w.id, w.move_kind, CASE WHEN w.move_kind = 'DISCHARGE' THEN w.from_position ELSE w.planned_position END AS cell, u.unit_ref
-         FROM work_instructions w JOIN units u ON u.id = w.unit_id
-        WHERE w.visit_id = $1 AND w.status = 'PLANNED' AND w.move_kind IN ('DISCHARGE','LOAD') FOR UPDATE OF w`,
+    const wis = await tx.many<{ id: string; move_kind: 'DISCHARGE' | 'LOAD' | 'RESTOW'; cell: string | null; unit_ref: string }>(
+      `SELECT w.id, w.move_kind, CASE WHEN w.move_kind = 'LOAD' THEN w.planned_position ELSE w.from_position END AS cell,
+              coalesce(u.unit_ref, st.unit_ref) AS unit_ref
+         FROM work_instructions w LEFT JOIN units u ON u.id = w.unit_id LEFT JOIN vessel_stow st ON st.id = w.stow_id
+        WHERE w.visit_id = $1 AND w.status = 'PLANNED' AND w.move_kind IN ('DISCHARGE','LOAD','RESTOW') FOR UPDATE OF w`,
       [visitId],
     );
     // Moves without a cell (no BAPLIE yet, load not stowed) stay out of the crane queues until a re-split.
     const missing = wis.filter((w) => !w.cell || !parseCell(w.cell));
     const moves: PlannedMove[] = wis.filter((w) => w.cell && parseCell(w.cell)).map((w) => ({ id: w.id, kind: w.move_kind, cell: parseCell(w.cell!)! }));
-    const restows: PlannedMove[] = (await tx.many<{ cell: string }>(
-      `SELECT cell FROM vessel_stow WHERE visit_id = $1 AND disposition = 'RESTOW'`, [visitId],
-    )).map((r, i) => ({ id: `restow-${i}`, kind: 'RESTOW', cell: parseCell(r.cell)! }));
     if (!moves.length) {
       throw ApiError.conflict('nothing_to_split', missing.length
         ? `None of the ${missing.length} planned move(s) has a vessel cell yet (discharges need a BAPLIE, loads a stow plan)`
@@ -346,7 +354,7 @@ export class PlanningService {
     }
 
     const byHatch = new Map<number, PlannedMove[]>();
-    for (const m of [...moves, ...restows]) byHatch.set(m.cell.hatch, [...(byHatch.get(m.cell.hatch) ?? []), m]);
+    for (const m of moves) byHatch.set(m.cell.hatch, [...(byHatch.get(m.cell.hatch) ?? []), m]);
     const split = craneSplit(
       cranes.map((c) => c.code),
       [...byHatch.entries()].map(([hatch, ms]) => ({
@@ -385,7 +393,6 @@ export class PlanningService {
       ))!.n;
       const ordered = s.hatches.flatMap((h) => sequenceHatch(byHatch.get(h) ?? []));
       for (const m of ordered) {
-        if (m.kind === 'RESTOW') continue; // counted in the workload; restow moves are created in a later release
         await tx.exec('UPDATE work_instructions SET work_queue_id = $2, sequence = $3, version = version + 1 WHERE id = $1', [m.id, queueId, ++seq]);
       }
       result.push({
@@ -402,7 +409,7 @@ export class PlanningService {
       [visitId, cranes.map((c) => c.id)],
     );
     const summary = {
-      visitRef: visit.visit_ref, movesPerHour: rate, totalMoves: workload([...moves, ...restows]),
+      visitRef: visit.visit_ref, movesPerHour: rate, totalMoves: workload(moves),
       withoutCell: missing.map((m) => m.unit_ref),
       vesselHours: Math.max(...result.map((r) => r.hours)), cranes: result,
     };

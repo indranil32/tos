@@ -43,7 +43,7 @@ export function BayPlanPanel({ visitId }: { visitId: string }) {
         </div>
       )}
       {busy && <p className="muted">Saving…</p>}
-      <BayPlanView plan={p} picking={picking} onPickCell={planner ? (cell) => picking && stow(picking, cell) : undefined} />
+      <BayPlanView plan={p} picking={picking} pickingIso={p.unplannedLoads.find((u) => u.unitRef === picking)?.isoType ?? null} onPickCell={planner ? (cell) => picking && stow(picking, cell) : undefined} />
     </>
   );
 }

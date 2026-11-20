@@ -12,7 +12,7 @@ import { statusOf } from '../theme/colors';
 import { Equipment, WorkInstruction, WorkQueue } from '../types';
 
 const POW_KINDS = ['VESSEL', 'YARD', 'RAIL', 'GATE', 'HOUSEKEEPING', 'CFS', 'DEPOT'];
-const MOVE_KINDS = ['DISCHARGE', 'LOAD', 'YARD_SHIFT', 'HOUSEKEEPING', 'GATE_IN', 'GATE_OUT', 'RAIL_DISCHARGE', 'RAIL_LOAD'];
+const MOVE_KINDS = ['DISCHARGE', 'LOAD', 'RESTOW', 'YARD_SHIFT', 'HOUSEKEEPING', 'GATE_IN', 'GATE_OUT', 'RAIL_DISCHARGE', 'RAIL_LOAD'];
 
 const queueColumns: GridColumn<WorkQueue>[] = [
   text('code', 'Queue', (r) => r.code, { render: (r) => <Link to={`/work/${encodeURIComponent(r.code)}`} onClick={(e) => e.stopPropagation()}>{r.code}</Link> }),

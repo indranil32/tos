@@ -77,6 +77,7 @@ Shown on: Vessel visit: bay plan.
 | `RESTOW` | ! Restow | Needs attention | Stays on board but must come off and go back on to reach cargo for this port. |
 | `DISCHARGED` | ✓ Discharged | Done | Taken off at this port. |
 | `LOADED` | ✓ Loaded | Done | Loaded at this port. |
+| `RESTOWED` | ✓ Restowed | Done | Taken off and put back on board. |
 | `ROB` | – On board | Closed | Remains on board; no move here. |
 
 ### Equipment status

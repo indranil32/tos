@@ -5,14 +5,14 @@ import { StatusLegend } from './Badges';
 
 type ColourBy = 'state' | 'pod' | 'crane';
 
-const GLYPH: Record<string, string> = { DISCHARGE: '↓', LOAD: '↑', RESTOW: '⟳', DISCHARGED: '✓', LOADED: '✓', ROB: '' };
+const GLYPH: Record<string, string> = { DISCHARGE: '↓', LOAD: '↑', RESTOW: '⟳', DISCHARGED: '✓', LOADED: '✓', RESTOWED: '✓', ROB: '' };
 
 /**
  * Bay plan: one cross-section per 20' bay, as seen from astern (port side left). Deck tiers above the hatch-cover
  * line, hold tiers below. A 40' unit (even bay) is drawn in both 20' bays it spans, marked "40".
  * When onPickCell is set, empty cells are clickable (used to stow a selected load unit).
  */
-export function BayPlanView({ plan, onPickCell, picking }: { plan: BayPlan; onPickCell?: (cell: string) => void; picking?: string | null }) {
+export function BayPlanView({ plan, onPickCell, picking, pickingIso }: { plan: BayPlan; onPickCell?: (cell: string) => void; picking?: string | null; pickingIso?: string | null }) {
   const [by, setBy] = useState<ColourBy>('state');
   const [onlyUsed, setOnlyUsed] = useState(true);
   const { maxBay, maxRow, holdTiers, deckTiers } = plan.profile;
@@ -47,8 +47,12 @@ export function BayPlanView({ plan, onPickCell, picking }: { plan: BayPlan; onPi
     const hit = index.get(`${bay}-${row}-${tier}`);
     const code = `${String(bay).padStart(3, '0')}${String(row).padStart(2, '0')}${String(tier).padStart(2, '0')}`;
     if (!hit) {
-      return picking && onPickCell
-        ? <button key={code} className="bp-cell empty pick" title={`Stow ${picking} in ${code}`} onClick={() => onPickCell(code)} />
+      // A 40'/45' unit goes in the even bay spanning this 20' bay and its pair (01+03 -> 02).
+      const long = !!pickingIso && pickingIso[0] !== '2';
+      const target = long ? `${String(bay % 4 === 1 ? bay + 1 : bay - 1).padStart(3, '0')}${code.slice(3)}` : code;
+      const pairFree = !long || !index.has(`${bay % 4 === 1 ? bay + 2 : bay - 2}-${row}-${tier}`);
+      return picking && onPickCell && pairFree
+        ? <button key={code} className="bp-cell empty pick" title={`Stow ${picking} in ${target}`} onClick={() => onPickCell(target)} />
         : <span key={code} className="bp-cell empty" title={code} />;
     }
     const { c, is40 } = hit;

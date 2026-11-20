@@ -152,3 +152,9 @@ export interface BerthPlanVisit {
   berth: string | null; quayFromM: number | null; eta: string | null; etb: string | null; etd: string | null; ata: string | null; atd: string | null;
   sideTo: string | null; openMoves: number; doneMoves: number;
 }
+
+export interface YardRange {
+  id: string; name: string; block: string; bayFrom: number; bayTo: number; rowFrom: number; rowTo: number; purpose: string;
+  visitRef: string | null; visitId: string | null; pod: string | null; line: string | null; size: string | null; weightClass: string | null;
+  reefer: boolean | null; priority: number; occupied: number; slots: number;
+}

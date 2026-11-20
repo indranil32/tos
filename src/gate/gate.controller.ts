@@ -53,7 +53,7 @@ export class GateController {
       if (b.direction === 'OUT') {
         await tx.exec(`UPDATE units SET state = 'DEPARTED', time_out = $2, yard_position = NULL WHERE id = $1`, [unit!.id, at]);
       } else {
-        const alloc = await this.yard.allocate(tx, f.id, unit!.cargo_kind);
+        const alloc = await this.yard.allocate(tx, f.id, unit!.id);
         position = alloc.position;
         await tx.exec(
           `UPDATE units SET state = 'IN_YARD', time_in = $2, yard_block_id = $3, yard_position = $4 WHERE id = $1`,

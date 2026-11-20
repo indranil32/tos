@@ -182,6 +182,9 @@ async function setupVesselPlanning() {
     // Leave four loads unstowed so the planner has something to place; split the rest only when all have cells.
     console.log(`Vessel planning showcase: ${cells.length} cells on board, ${unique.length} loads stowed.`);
   }
+  // Yard strategy: reserved bays for this call's exports and for MSC empties (overlaps are refused, so this is idempotent).
+  await call('POST', '/v1/yard/ranges', { name: 'GMR-PLAN exports', block: 'A2', bayFrom: 1, bayTo: 6, purpose: 'EXPORT', visitId: visit.id, priority: 10 }, ok);
+  await call('POST', '/v1/yard/ranges', { name: 'MSC empties', block: 'A2', bayFrom: 15, bayTo: 20, purpose: 'EMPTY', line: 'MSC', priority: 40 }, ok);
   const split = await call('GET', `/v1/visits/${visit.id}/crane-split`);
   if (!split.queues.length) {
     const r = await call('POST', `/v1/visits/${visit.id}/crane-split`, { cranes: ['QC01', 'QC02'], movesPerHour: 28 }, ok);

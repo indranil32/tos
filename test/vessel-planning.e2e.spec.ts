@@ -168,20 +168,21 @@ describe('Vessel planning', () => {
       expect.objectContaining({ crane: 'QC02', bayFrom: 5, bayTo: 13, moves: 6, restows: 1 }),
     ]);
     const q1 = (await expectOk(planner.get('/v1/work-queues/PLN-01-QC01'))).body;
-    expect(q1).toMatchObject({ powKind: 'VESSEL', equipment: 'QC01', planned: 3 });
-    // discharge deck by bay, then the load
-    expect(q1.instructions.map((i: any) => [i.unitRef, i.moveKind])).toEqual([[U[0], 'DISCHARGE'], [U[2], 'DISCHARGE'], [E[0], 'LOAD']]);
+    expect(q1).toMatchObject({ powKind: 'VESSEL', equipment: 'QC01', planned: 4 });
+    // the restow on top comes off first, then the discharges by tier and bay, then the load
+    expect(q1.instructions.map((i: any) => [i.unitRef, i.moveKind])).toEqual([[U[1], 'RESTOW'], [U[0], 'DISCHARGE'], [U[2], 'DISCHARGE'], [E[0], 'LOAD']]);
     const q2 = (await expectOk(planner.get('/v1/work-queues/PLN-01-QC02'))).body;
-    expect(q2.instructions.map((i: any) => i.unitRef)).toEqual([U[3], E[2], E[1], U[5]]);
+    // hatch 1: deck restow (hatch cover) before the hold discharge; hatch 2 loads; hatch 3 discharge
+    expect(q2.instructions.map((i: any) => i.unitRef)).toEqual([U[4], U[3], E[2], E[1], U[5]]);
 
     const current = (await expectOk(planner.get(`/v1/visits/${v1}/crane-split`))).body;
-    expect(current.queues.map((q: any) => [q.crane, q.bayFrom, q.bayTo, q.planned])).toEqual([['QC01', 1, 2, 3], ['QC02', 5, 13, 4]]);
+    expect(current.queues.map((q: any) => [q.crane, q.bayFrom, q.bayTo, q.planned])).toEqual([['QC01', 1, 2, 4], ['QC02', 5, 13, 5]]);
 
     // One crane breaks down before work starts: re-split onto QC02 alone; QC01's queue closes.
     const solo = await expectOk(planner.post(`/v1/visits/${v1}/crane-split`, { cranes: ['QC02'] }));
     expect(solo.body.cranes).toEqual([expect.objectContaining({ crane: 'QC02', bayFrom: 1, bayTo: 13, moves: 11 })]);
     expect((await expectOk(planner.get('/v1/work-queues/PLN-01-QC01'))).body).toMatchObject({ status: 'CLOSED', planned: 0 });
-    expect((await expectOk(planner.get('/v1/work-queues/PLN-01-QC02'))).body.planned).toBe(7);
+    expect((await expectOk(planner.get('/v1/work-queues/PLN-01-QC02'))).body.planned).toBe(9);
   });
 
   it('works the crane queue from the device API and keeps the bay plan current', async () => {
@@ -189,12 +190,18 @@ describe('Vessel planning', () => {
     const edi = await t.as(['tos:edi']);
     await expectOk(op.post(`/v1/visits/${v1}/arrive`, { berth: 'B1' }));
     await expectOk(op.post('/v1/equipment/QC02/status', { status: 'IDLE', operator: 'Ravi' }));
+    // The restow sitting on top of U0 comes first.
+    const restow = (await expectOk(op.post('/v1/dispatch/next', { equipment: 'QC02' }))).body.job;
+    expect(restow).toMatchObject({ unitRef: U[1], moveKind: 'RESTOW', fromPosition: '0010284', unitId: null });
+    const rs = await expectOk(op.post(`/v1/work-instructions/${restow.id}/complete`, { equipment: 'QC02' }));
+    expect(rs.body).toMatchObject({ status: 'COMPLETED', toPosition: '0010284' });
     const job = (await expectOk(op.post('/v1/dispatch/next', { equipment: 'QC02' }))).body.job;
     expect(job).toMatchObject({ unitRef: U[0], moveKind: 'DISCHARGE', fromPosition: '0010282' });
     await expectOk(op.post(`/v1/work-instructions/${job.id}/complete`, { equipment: 'QC02' }));
 
     const bp = (await expectOk(op.get(`/v1/visits/${v1}/bay-plan`))).body;
     expect(bp.cells.find((c: any) => c.cell === '0010282')).toMatchObject({ state: 'DISCHARGED' });
+    expect(bp.cells.find((c: any) => c.cell === '0010284')).toMatchObject({ state: 'RESTOWED', unitRef: U[1] });
     const moves = (await expectOk(op.get(`/v1/visits/${v1}/moves`))).body;
     expect(moves.find((m: any) => m.unitRef === U[0])).toMatchObject({ fromPosition: '0010282', status: 'COMPLETED' });
 

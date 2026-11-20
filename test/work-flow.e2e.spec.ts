@@ -123,7 +123,7 @@ describe('Terminal model, equipment and work queues', () => {
     const planner = await t.as(['tos:planner']);
     const op = await t.as(['tos:operator']);
     await expectOk(planner.post('/v1/work-queues', { code: 'HK-A1', name: 'Night housekeeping', powKind: 'HOUSEKEEPING', pool: 'HK', priority: 80 }));
-    await expectOk(planner.post('/v1/work-queues/HK-A1/instructions', { moves: [{ unitRef: imp3, toPosition: 'A1-02-02-2' }, { unitRef: imp1 }] }));
+    await expectOk(planner.post('/v1/work-queues/HK-A1/instructions', { moves: [{ unitRef: imp1, toPosition: 'A1-02-02-1' }, { unitRef: imp3 }] }));
     const dup = await planner.post('/v1/work-queues/HK-A1/instructions', { moves: [{ unitRef: imp3 }] });
     expect(dup.status).toBe(409);
     const notInYard = await planner.post('/v1/work-queues/HK-A1/instructions', { moves: [{ unitRef: imp2 }] });
@@ -132,7 +132,7 @@ describe('Terminal model, equipment and work queues', () => {
     await expectOk(op.post('/v1/equipment/RTG01/status', { status: 'IDLE', operator: 'Ali' }));
     await expectOk(op.post('/v1/equipment/RTG02/status', { status: 'IDLE', operator: 'Sam' }));
     const j1 = (await expectOk(op.post('/v1/dispatch/next', { equipment: 'RTG01' }))).body.job;
-    expect(j1).toMatchObject({ unitRef: imp3, moveKind: 'HOUSEKEEPING', plannedPosition: 'A1-02-02-2' });
+    expect(j1).toMatchObject({ unitRef: imp1, moveKind: 'HOUSEKEEPING', plannedPosition: 'A1-02-02-1' });
     // QC01 is not in the pool: no housekeeping for it.
     expect((await expectOk(op.post('/v1/dispatch/next', { equipment: 'QC01' }))).body.job).toMatchObject({ unitRef: imp2 });
 
@@ -144,14 +144,14 @@ describe('Terminal model, equipment and work queues', () => {
     const j1again = (await expectOk(op.post('/v1/dispatch/next', { equipment: 'RTG02' }))).body.job;
     expect(j1again).toMatchObject({ id: j1.id, equipment: 'RTG02' });
     const done = await expectOk(op.post(`/v1/work-instructions/${j1.id}/complete`, { equipment: 'RTG02' }));
-    expect(done.body).toMatchObject({ status: 'COMPLETED', toPosition: 'A1-02-02-2' });
+    expect(done.body).toMatchObject({ status: 'COMPLETED', toPosition: 'A1-02-02-1' });
     const yard = (await expectOk(op.get('/v1/yard'))).body;
     const a1 = yard.blocks.find((b: any) => b.code === 'A1');
-    expect(a1.units.find((u: any) => u.unitRef === imp3).position).toBe('A1-02-02-2');
+    expect(a1.units.find((u: any) => u.unitRef === imp1).position).toBe('A1-02-02-1');
 
     // Second move has no target: the allocator picks a free slot; a rejected job goes back to the queue.
     const j2 = (await expectOk(op.post('/v1/dispatch/next', { equipment: 'RTG02' }))).body.job;
-    expect(j2.unitRef).toBe(imp1);
+    expect(j2.unitRef).toBe(imp3);
     const back = await expectOk(op.post(`/v1/work-instructions/${j2.id}/reject`, { equipment: 'RTG02', reason: 'Slot blocked' }));
     expect(back.body).toMatchObject({ status: 'PLANNED', equipment: null });
     expect((await expectOk(op.get('/v1/equipment/RTG02'))).body.status).toBe('IDLE');

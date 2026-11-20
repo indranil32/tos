@@ -171,8 +171,8 @@ export class VesselService {
     if (unit.state !== 'ADVISED') throw ApiError.conflict('already_discharged', `${body.unitRef} is ${unit.state}`);
 
     const alloc = body.position
-      ? await this.yard.resolve(tx, facility.id, body.position)
-      : await this.yard.allocate(tx, facility.id, unit.cargo_kind, body.block);
+      ? await this.yard.resolve(tx, facility.id, body.position, unit.id)
+      : await this.yard.allocate(tx, facility.id, unit.id, body.block);
     const at = body.completedAt ?? new Date().toISOString();
 
     await tx.exec(

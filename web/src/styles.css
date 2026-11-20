@@ -214,3 +214,4 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .berth-chart svg { width: 100%; height: auto; display: block; }
 .bp-visit { cursor: pointer; }
 .bp-visit:hover rect:first-of-type { filter: brightness(0.95); }
+.slot.empty.reserved { border: 1.5px dashed #1F4E8C; background: #F2F6FC; }

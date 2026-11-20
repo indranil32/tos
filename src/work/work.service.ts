@@ -18,7 +18,7 @@ export interface InstructionRow {
   sequence: number | null;
   moveKind: string;
   status: string;
-  unitId: string;
+  unitId: string | null;
   unitRef: string;
   isoType: string | null;
   cargoKind: string;
@@ -36,13 +36,15 @@ export interface InstructionRow {
 
 export const INSTRUCTION_SELECT = `
   SELECT w.id, q.code AS queue, w.work_queue_id AS "queueId", w.sequence, w.move_kind AS "moveKind", w.status,
-         u.id AS "unitId", u.unit_ref AS "unitRef", u.iso_type AS "isoType", u.cargo_kind AS "cargoKind",
+         u.id AS "unitId", coalesce(u.unit_ref, st.unit_ref) AS "unitRef", coalesce(u.iso_type, st.iso_type) AS "isoType",
+         coalesce(u.cargo_kind, 'CONTAINER') AS "cargoKind",
          w.visit_id AS "visitId", v.visit_ref AS "visitRef",
          coalesce(w.from_position, CASE WHEN w.move_kind = 'DISCHARGE' THEN 'VESSEL' ELSE u.yard_position END) AS "fromPosition",
          w.to_position AS "toPosition", w.planned_position AS "plannedPosition", e.code AS equipment,
          w.dispatched_at AS "dispatchedAt", w.started_at AS "startedAt", w.completed_at AS "completedAt", w.version
     FROM work_instructions w
-    JOIN units u ON u.id = w.unit_id
+    LEFT JOIN units u ON u.id = w.unit_id
+    LEFT JOIN vessel_stow st ON st.id = w.stow_id
     LEFT JOIN work_queues q ON q.id = w.work_queue_id
     LEFT JOIN vessel_visits v ON v.id = w.visit_id
     LEFT JOIN equipment e ON e.id = w.equipment_id`;
@@ -154,6 +156,13 @@ export class WorkService {
       const stow = body.stowPosition ?? wi.plannedPosition ?? undefined;
       await this.vessel.load(tx, ctx, f, wi.visitId, { unitRef: wi.unitRef, stowPosition: stow, cheId: eq.code });
       position = stow ?? 'VESSEL';
+    } else if (wi.moveKind === 'RESTOW') {
+      // Off and back on to the same cell (or the cell the planner gave).
+      position = body.stowPosition ?? wi.plannedPosition ?? wi.fromPosition ?? 'VESSEL';
+      await this.events.emit(tx, ctx, {
+        type: 'vessel.restowed', aggregateType: 'work_instruction', aggregateId: wi.id, facilityId: f.id,
+        payload: { unitRef: wi.unitRef, visitRef: wi.visitRef, from: wi.fromPosition, to: position, equipment: eq.code },
+      });
     } else {
       throw ApiError.conflict('unsupported_move', `${wi.moveKind} moves are confirmed through their own module`);
     }
@@ -178,13 +187,10 @@ export class WorkService {
       'Unit',
     );
     if (unit.state !== 'IN_YARD') throw ApiError.conflict('not_in_yard', `${wi.unitRef} is ${unit.state}`);
-    const alloc = target ? await this.yard.resolve(tx, f.id, target) : await this.yard.allocate(tx, f.id, unit.cargo_kind);
+    const above = await this.unitsAbove(tx, f.id, unit.yard_position);
+    if (above.length) throw ApiError.conflict('unit_buried', `${wi.unitRef} is under ${above.join(', ')}; move ${above.length > 1 ? 'them' : 'it'} first`);
+    const alloc = target ? await this.yard.resolve(tx, f.id, target, unit.id) : await this.yard.allocate(tx, f.id, unit.id);
     if (alloc.position === unit.yard_position) throw ApiError.invalid(`${wi.unitRef} is already at ${alloc.position}`);
-    const taken = await tx.one(
-      `SELECT unit_ref FROM units WHERE facility_id = $1 AND yard_position = $2 AND state = 'IN_YARD' AND id <> $3`,
-      [f.id, alloc.position, unit.id],
-    );
-    if (taken) throw ApiError.conflict('slot_occupied', `${alloc.position} is occupied by ${taken.unit_ref}`);
     await tx.exec(`UPDATE units SET yard_block_id = $2, yard_position = $3 WHERE id = $1`, [unit.id, alloc.blockId, alloc.position]);
     await tx.exec(`UPDATE work_instructions SET from_position = $2 WHERE id = $1`, [wi.id, unit.yard_position]);
     await this.events.emit(tx, ctx, {
@@ -192,6 +198,17 @@ export class WorkService {
       payload: { unitRef: wi.unitRef, from: unit.yard_position, to: alloc.position, moveKind: wi.moveKind, equipment: eq.code },
     });
     return alloc.position;
+  }
+
+  /** Units stacked on top of a container-stack slot (block-bay-row-tier). */
+  private async unitsAbove(tx: Tx, facilityId: string, position: string | null): Promise<string[]> {
+    const m = position ? /^(.+-\d{2}-\d{2})-(\d{1,2})$/.exec(position) : null;
+    if (!m) return [];
+    return (await tx.many<{ unit_ref: string }>(
+      `SELECT unit_ref FROM units WHERE facility_id = $1 AND state = 'IN_YARD' AND yard_position LIKE $2 || '-%'
+          AND split_part(yard_position, '-', 4)::int > $3 ORDER BY split_part(yard_position, '-', 4)::int DESC`,
+      [facilityId, m[1], Number(m[2])],
+    )).map((r) => r.unit_ref);
   }
 
   private async owned(tx: Tx, f: FacilityRow, id: string, eq: EquipmentRow, version?: number) {

@@ -141,6 +141,7 @@ export const STATUS_DOMAINS = {
       RESTOW: s('Restow', 'attention', 'Stays on board but must come off and go back on to reach cargo for this port.'),
       DISCHARGED: s('Discharged', 'done', 'Taken off at this port.'),
       LOADED: s('Loaded', 'done', 'Loaded at this port.'),
+      RESTOWED: s('Restowed', 'done', 'Taken off and put back on board.'),
       ROB: s('On board', 'closed', 'Remains on board; no move here.'),
     },
   },

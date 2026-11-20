@@ -82,7 +82,7 @@ describe('Vessel call: discharge to invoice', () => {
     const d2 = await expectOk(op.post(`/v1/visits/${visitId}/discharges`, { unitRef: c2, cheId: 'QC01' }));
     const d3 = await expectOk(op.post(`/v1/visits/${visitId}/discharges`, { unitRef: lot }));
     expect(d1.body.position).toBe('A1-01-01-1');
-    expect(d2.body.position).toBe('A1-01-01-2');
+    expect(d2.body.position).toBe('A1-01-02-1'); // a 45' never goes on a 20' stack
     expect(d3.body.position).toBe('L1-0001');
 
     const dup = await op.post(`/v1/visits/${visitId}/discharges`, { unitRef: c1 });
